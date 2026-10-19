@@ -2,8 +2,9 @@
 # Les valeurs lisibles (A, FPE, titulaire…) sont traduites en identifiants du site par le code.
 recherches:
   - nom: numerique-orleans
-    mots_cles: ['chef de projet', 'numérique']
-    localisation: { commune: 'Orléans', rayon_km: 30 }
+    mots_cles: ['chef de projet numérique']
+    # departements / regions : filtrés par le site ; commune + rayon_km : filtrés localement après géocodage.
+    localisation: { departements: ['45', '41'], commune: 'Orléans', rayon_km: 30 }
     teletravail: true
     categories: [A]
     versants: [FPE, FPT]

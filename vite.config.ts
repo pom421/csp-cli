@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite-plus';
 
 export default defineConfig({
-  // drizzle/ : migrations et instantanés générés par drizzle-kit, laissés tels quels.
-  fmt: { singleQuote: true, printWidth: 120, ignorePatterns: ['drizzle/**'] },
+  // drizzle/ (généré par drizzle-kit) et fixtures (HTML du site, volontairement intact) : laissés tels quels.
+  fmt: { singleQuote: true, printWidth: 120, ignorePatterns: ['drizzle/**', 'src/test/fixtures/**'] },
   lint: {
     jsPlugins: [{ name: 'vite-plus', specifier: 'vite-plus/oxlint-plugin' }],
     rules: { 'vite-plus/prefer-vite-plus-imports': 'error' },

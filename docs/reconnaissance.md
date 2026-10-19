@@ -1,7 +1,8 @@
 # Reconnaissance du site (phase 0)
 
 Relevé du 19/10/2026 sur https://choisirleservicepublic.gouv.fr, une dizaine de requêtes espacées (curl + navigateur).
-Fixtures correspondantes dans `src/test/fixtures/` (formulaire de filtres, scripts et styles retirés ; contacts recruteurs pseudonymisés).
+Fixtures correspondantes dans `src/test/fixtures/` (cases à cocher des organismes et lieux, scripts et styles retirés ; contacts recruteurs
+pseudonymisés). Complété le 19/10/2026 au soir (phase 3) : segments d'URL, versant, géolocalisation, références.
 
 ## Constat principal : pages rendues côté serveur
 
@@ -30,7 +31,15 @@ Exemples vérifiés :
 | Domaine                                         | `/nos-offres/filtres/domaine/3503/`                                     |
 
 - `GET /nos-offres?s=…` redirige (301) vers `/nos-offres/?s=…` mais **n'applique pas** le mot-clé : il faut le segment `mot-cles`.
-- Le versant sélectionné seul a produit un segment `organisme/vrtl_…` (liste d'identifiants d'organismes) : à revoir en phase 3.
+- Table complète des segments, lue dans le JS du site (`window.ParamsDataSearch.url_keywords`), dans l'ordre d'écriture :
+  `mot-cles`, `localisation`, `domaine`, `versant`, `categorie`, `organisme`, `type`, `management`, `teletravail`, `experience`,
+  `geoloc`, `regions`, `date-de-publication`, puis `tri/<ordre>`. Valeurs multiples jointes par `-` ; dans le mot-clé, `/` devient `---`.
+- **Versant** : le formulaire le traduit en liste d'organismes (`organisme/7060-10661-…`), et `versant/2458` saisi à la main renvoie
+  des offres des trois versants. → **filtrage local** sur le libellé « Fonction publique : » de la carte. Certaines cartes affichent
+  seulement « Fonction publique » (sans versant) : elles sont conservées.
+- **Géolocalisation** (`geoloc/<lat>/<lon>/<rayon>`, points remplacés par `_`) : acceptée dans l'URL mais **non filtrée** côté serveur
+  (résultats de toute la France). → départements/régions côté site, commune + rayon filtrés localement après géocodage (phase 5).
+- Département ou région (`localisation/263-262`) : filtrage serveur vérifié (cartes toutes dans le Loiret et le Loir-et-Cher).
 
 ### Valeurs des filtres (identifiants internes du site)
 
@@ -38,14 +47,14 @@ Exemples vérifiés :
 | ------------------------------ | ---------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `s` (mot-clé)                  | `mot-cles`             | texte, encodé en URL                                                                                                   |
 | `regions[]` / départements     | `localisation`         | régions : Centre-Val de Loire `202`, Île-de-France `208`, … ; départements : Loiret `263`, Paris `284`, …              |
-| `geolocation-range`            | à vérifier             | 5, 10, 20, 30, 40, 50, 100 km (nécessite une géolocalisation)                                                          |
+| `geolocation-range`            | `geoloc` (inopérant)   | 5, 10, 20, 30, 40, 50, 100 km (nécessite une géolocalisation)                                                          |
 | `categories[]`                 | `categorie`            | A+ `4327-4328`, A `1805`, B `1806`, C `1807`                                                                           |
-| `versants[]`                   | à vérifier             | FPE `2456`, FPH `2457`, FPT `2458`                                                                                     |
-| `jobs[]` (nature de l'emploi)  | à vérifier             | titulaires et contractuels `2349`, fonctionnaires/lauréats concours territorial `4534`, contractuels uniquement `2267` |
-| `experiences[]`                | à vérifier             | débutant `1835`, confirmé `1834`, expert `1833`                                                                        |
-| `date_de_publication[]`        | à vérifier             | `dernieres_48_heures`, `7_derniers_jours`, `14_derniers_jours`                                                         |
+| `versants[]`                   | `versant` (peu fiable) | FPE `2456`, FPH `2457`, FPT `2458`                                                                                     |
+| `jobs[]` (nature de l'emploi)  | `type`                 | titulaires et contractuels `2349`, fonctionnaires/lauréats concours territorial `4534`, contractuels uniquement `2267` |
+| `experiences[]`                | `experience`           | débutant `1835`, confirmé `1834`, expert `1833`                                                                        |
+| `date_de_publication[]`        | `date-de-publication`  | `dernieres_48_heures`, `7_derniers_jours`, `14_derniers_jours`                                                         |
 | télétravail (interrupteur)     | `teletravail`          | `1814`                                                                                                                 |
-| management (interrupteur)      | à vérifier             | `1814`                                                                                                                 |
+| management (interrupteur)      | `management`           | `1814`                                                                                                                 |
 | `domains[]`, `organisations[]` | `domaine`, `organisme` | listes longues, à extraire si besoin                                                                                   |
 
 Ces identifiants viennent de la base du site et peuvent changer : `recherches.yaml` utilisera des noms lisibles (`categories: [A]`)
@@ -128,8 +137,14 @@ Sitemap: https://choisirleservicepublic.gouv.fr/sitemapindex.xml
 - Liste : **≈ 4,4 Mo** par page (le formulaire de filtres embarque toutes les cases à cocher). 1 recherche de 5 pages ≈ 22 Mo.
 - Détail : ≈ 215 Ko.
 
-## Reste à vérifier (phase 3)
+## Vérifié en phase 3
 
-- Segments d'URL de versant, nature de l'emploi, expérience, date de publication, management, rayon géographique.
-- Page au-delà de la dernière (404 ? page vide ?) et page « aucun résultat ».
-- Confirmer le plafond de 200 pages.
+- **Page au-delà de la dernière** : HTTP 200, compteur présent, 0 carte (pas de 404). La collecte s'arrête à la première page sans
+  lien « suivante » ou sans carte.
+- **Aucun résultat** : le titre du bloc de résultats (`.actions p[role="heading"]`) affiche « Aucun résultat ne correspond à votre
+  recherche. » au lieu de `<span class="number">N</span> offres d'emploi trouvées` ; sans l'un ni l'autre → page cassée (code 2).
+- **Références** : peuvent contenir `_` (`MAE_1aa0659e-d83c-…`, `DEF_18-00064959`, `AGRI_2026-16-A5D4100029-57900`).
+- **HTML mal formé** : des `aria-label` contiennent des guillemets non échappés. Un parseur non conforme (node-html-parser) rattache
+  alors le compteur au mauvais nœud ; on utilise **parse5** (arbre identique au navigateur) + css-select.
+- Plafond de 200 pages : le lien « dernière page » plafonne bien à 200 ; non vérifié au-delà (une recherche ne doit pas l'atteindre).
+- Une recherche par mot-clé reste large (le site semble chercher chaque mot) : combiner avec des filtres.

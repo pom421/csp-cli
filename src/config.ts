@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { parse } from 'yaml';
 import { z } from 'zod';
 import { UserError } from './erreurs.ts';
+import { DEPARTEMENTS, REGIONS } from './scraper/referentiel.ts';
 
 /** Données hors du dépôt : le binaire est lancé depuis n'importe quel dossier. */
 export function dossierCsp(): string {
@@ -35,7 +36,7 @@ export function heureDepart(): string {
   return v;
 }
 
-// Valeurs lisibles ; la correspondance avec les identifiants du site (docs/reconnaissance.md) est faite par le scraper.
+// Valeurs lisibles ; la correspondance avec les identifiants du site est dans src/scraper/referentiel.ts.
 const texte = z.string().trim().min(1).max(200);
 
 export const RechercheSchema = z.strictObject({
@@ -45,13 +46,15 @@ export const RechercheSchema = z.strictObject({
   mots_cles: z.array(texte).max(10).default([]),
   localisation: z
     .strictObject({
+      // Filtrés par le site :
+      departements: z.array(z.enum(Object.keys(DEPARTEMENTS) as [string, ...string[]])).optional(),
+      regions: z.array(z.enum(Object.keys(REGIONS) as [string, ...string[]])).optional(),
+      // Filtrés localement après géocodage (phase 5) : le filtre géographique du site ne marche pas par URL.
       commune: texte.optional(),
-      departement: z
-        .string()
-        .regex(/^(\d{2}|2[AB]|97\d)$/)
-        .optional(),
-      region: texte.optional(),
-      rayon_km: z.union([5, 10, 20, 30, 40, 50, 100].map((n) => z.literal(n))).optional(),
+      rayon_km: z.number().positive().max(200).optional(),
+    })
+    .refine((l) => (l.commune === undefined) === (l.rayon_km === undefined), {
+      message: 'commune et rayon_km vont ensemble',
     })
     .optional(),
   teletravail: z.boolean().optional(),

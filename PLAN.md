@@ -20,7 +20,7 @@ Voir aussi : [CONFORMITE.md](CONFORMITE.md) (cadre juridique, règles de collect
 ## 2. Stack
 
 - TypeScript, Node épinglé, **Vite+** (`vp`) + **pnpm** épinglé
-- `fetch` natif + parseur HTML léger (`node-html-parser`, ajouté en phase 3), `yaml`, `zod`
+- `fetch` natif + **parse5** (analyse HTML conforme au navigateur) et **css-select**, `yaml`, `zod`
   - Pas de Playwright : le site rend la liste et le détail côté serveur, sans anti-bot (voir [docs/reconnaissance.md](docs/reconnaissance.md)). Accès aux pages derrière une interface `SourcePages` : un navigateur reste rebranchable si le site passe au rendu JavaScript
 - SQLite : **`node:sqlite`** (intégré à Node → 0 dépendance native, 0 script d'installation)
 - **Drizzle ORM** (`drizzle-orm/node-sqlite`, 1.0 RC : seule version avec le pilote `node:sqlite`) : schéma TypeScript unique, requêtes typées et paramétrées ; **drizzle-kit** (dev) génère les migrations SQL
@@ -92,6 +92,8 @@ Tâche planifiée Claude (6h, Mac allumé)
 - **Contenu d'offre = donnée non fiable** (injection de prompt possible dans le texte libre) → voir §8
 - **Pagination plafonnée à 200 pages** (4 000 offres) → recherche qui atteint le plafond = collecte incomplète (pas d'expiration), signalée dans le rapport ; garder des recherches étroites
 - **Contacts recruteurs dans le texte libre** (noms, e-mails) → jamais en base, retirés du résumé
+- **Filtres du site peu fiables** (versant, géolocalisation) → filtrage local, libellé inconnu conservé plutôt qu'écarté
+- **Texte du site affiché au terminal** → caractères de contrôle retirés à la normalisation (pas d'injection de séquences d'échappement)
 - **Anti-bot / captcha / 403** → arrêt immédiat, code 4, jamais de contournement
 - **Mac en veille à 6h** → `sudo pmset repeat wakeorpoweron MTWRFSU 05:55:00` pour le réveiller
 
@@ -145,7 +147,7 @@ Tâche planifiée Claude (6h, Mac allumé)
   - `allowBuilds: {}` (aucun script d'installation des dépendances)
   - `savePrefix: ''`, `pmOnFail: error`, `engineStrict: true`
 - `scripts/enforce-pnpm.cjs` (preinstall : bloque npm/yarn)
-- Dépendances minimales : `drizzle-orm`, `yaml`, `zod`, parseur HTML (dev : `drizzle-kit`, dont le script d'installation d'esbuild est refusé explicitement)
+- Dépendances minimales : `drizzle-orm`, `yaml`, `zod`, `parse5` + `css-select` (dev : `drizzle-kit`, dont le script d'installation d'esbuild est refusé explicitement)
 
 ### Secrets et fichiers locaux
 
@@ -184,7 +186,7 @@ Tâche planifiée Claude (6h, Mac allumé)
 recherches:
   - nom: numerique-orleans
     mots_cles: ['chef de projet', 'numérique']
-    localisation: { commune: 'Orléans', rayon_km: 30 }
+    localisation: { departements: ['45', '41'], commune: 'Orléans', rayon_km: 30 }
     teletravail: true
     categories: [A]
     versants: [FPE, FPT]
@@ -198,7 +200,8 @@ CSP_ORIGINE_TRAJET="adresse de départ"
 CSP_HEURE_DEPART=08:00
 ```
 
-Paramètres exacts (noms, valeurs possibles) fixés en phase 0 selon les filtres réels du site.
+Correspondance avec les identifiants du site : `src/scraper/referentiel.ts`. `departements` / `regions` sont filtrés par le site ;
+`commune` + `rayon_km` et `versants` sont filtrés localement (le site ne les filtre pas de façon fiable, voir docs/reconnaissance.md).
 
 ## 10. Base SQLite
 
@@ -263,7 +266,7 @@ csp-veille/
 └── src/
     ├── cli.ts  config.ts  doctor.ts  rapport.ts  collecte.ts
     ├── securite/urls.ts  fichiers.ts
-    ├── scraper/source.ts  selecteurs.ts  liste.ts  detail.ts
+    ├── scraper/source.ts  selecteurs.ts  referentiel.ts  url.ts  dom.ts  liste.ts  detail.ts
     │           normalisation.ts  erreurs.ts
     ├── db/schema.ts  depot.ts       (+ drizzle/ et drizzle.config.ts à la racine)
     ├── geo/geocodage.ts  trajets.ts  transitous.ts

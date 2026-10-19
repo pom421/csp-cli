@@ -3,7 +3,7 @@
 Veille quotidienne des offres d'emploi de [Choisir le service public](https://choisirleservicepublic.gouv.fr/) : base SQLite
 locale, résumés éditoriaux, temps de trajet en transports en commun. Usage personnel (voir [CONFORMITE.md](CONFORMITE.md)).
 
-État : phases 0 (reconnaissance) et 1 (socle) du [plan](PLAN.md). Seule la commande `csp doctor` est disponible.
+État : phases 0 à 3 du [plan](PLAN.md) (reconnaissance, socle, base, liste des offres). La collecte ne s'exécute encore qu'à blanc.
 
 ## Installation
 
@@ -33,6 +33,7 @@ chmod 600 ~/.config/csp-veille/*
 
 ```bash
 pnpm csp doctor
+pnpm csp collecte --dry-run [--recherche <nom>] [--json]
 ```
 
 | Code de sortie | Signification                                            |

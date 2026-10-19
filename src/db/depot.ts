@@ -33,8 +33,14 @@ export class Depot {
   readonly client: DatabaseSync;
   readonly db: NodeSQLiteDatabase;
 
-  constructor(chemin: string) {
+  /** `lectureSeule` : aucune écriture, ni migration (collecte --dry-run). La base doit exister. */
+  constructor(chemin: string, { lectureSeule = false } = {}) {
     const memoire = chemin === ':memory:';
+    if (lectureSeule) {
+      this.client = new DatabaseSync(chemin, { readOnly: true });
+      this.db = drizzle({ client: this.client });
+      return;
+    }
     if (!memoire) dossierPrive(dirname(chemin));
     this.client = new DatabaseSync(chemin);
     if (!memoire) {

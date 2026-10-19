@@ -6,7 +6,9 @@ import { appliquerProxy, utiliserCertificatsSysteme } from './http.ts';
 
 const USAGE = `Usage : csp <commande> …
 
-  doctor      Vérifie dossier local et droits, .env, recherches, accès au site et aux API
+  doctor                     Vérifie dossier local et droits, .env, recherches, accès au site et aux API
+  collecte --dry-run [--recherche <nom>] [--json]
+                             Parcourt les recherches et compare à la base, sans rien écrire
 
 Codes de sortie : 0 OK, 1 autre erreur, 2 casse du site, 3 site indisponible, 4 blocage (captcha, 403, 429).
 Données locales : ~/.config/csp-veille (variable CSP_HOME pour changer).`;
@@ -31,6 +33,20 @@ async function main(argv: string[]): Promise<number> {
     case 'doctor': {
       args(reste);
       return (await import('./doctor.ts')).doctor();
+    }
+    case 'collecte': {
+      const { values } = args(reste, {
+        'dry-run': { type: 'boolean' },
+        recherche: { type: 'string' },
+        json: { type: 'boolean' },
+      });
+      const { collecte, formaterBilan } = await import('./collecte.ts');
+      const bilan = await collecte({
+        dryRun: Boolean(values['dry-run']),
+        recherche: values.recherche as string | undefined,
+      });
+      console.log(values.json ? JSON.stringify(bilan, null, 2) : formaterBilan(bilan));
+      return 0;
     }
     default:
       console.log(USAGE);

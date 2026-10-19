@@ -1,17 +1,25 @@
 // Tests de bout en bout : le binaire est lancé dans un sous-processus, contre le faux site.
 import { execFile } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
-import { demarrer } from './faux-site.ts';
+import { demarrer, robotsParDefaut } from './faux-site.ts';
+import { pageMinimale } from './outils.ts';
 
 const CLI = new URL('../cli.ts', import.meta.url).pathname;
 
 let site: Awaited<ReturnType<typeof demarrer>>;
 beforeAll(async () => {
-  site = await demarrer();
+  site = await demarrer((req, res) => {
+    // Recherche « essai » sans filtre : 2 pages, puis fin.
+    if (req.url === '/nos-offres/') res.writeHead(200, { 'content-type': 'text/html' }).end(pageMinimale('A-1', true));
+    else if (req.url === '/nos-offres/page/2/') res.writeHead(200).end(pageMinimale('B-2', false));
+    else if (req.url === '/nos-offres/filtres/categorie/1807/')
+      res.writeHead(200).end('<html><body>refonte</body></html>');
+    else robotsParDefaut(req, res);
+  });
 });
 afterAll(() => site.fermer());
 
@@ -84,5 +92,37 @@ describe('csp doctor', () => {
     const home = homeComplet();
     writeFileSync(join(home, 'recherches.yaml'), 'recherches:\n  - nom: a\n    versants: [FPX]\n');
     expect(await csp(home, 'doctor')).toMatchObject({ code: 1, sortie: expect.stringContaining('versants') });
+  });
+});
+
+describe('csp collecte', () => {
+  it('--dry-run parcourt les pages et liste les nouvelles offres sans créer la base', async () => {
+    const home = homeComplet();
+    const r = await csp(home, 'collecte', '--dry-run');
+    expect(r).toMatchObject({ code: 0, sortie: expect.stringContaining('essai : 9999 annoncée(s), 2 page(s) lue(s)') });
+    expect(r.sortie).toContain('nouvelles : 2');
+    expect(r.sortie).toContain(`${site.url}/offre-emploi/poste-reference-B-2/`);
+    expect(existsSync(join(home, 'csp.sqlite'))).toBe(false);
+  });
+
+  it('--json renvoie le bilan structuré', async () => {
+    const r = await csp(homeComplet(), 'collecte', '--dry-run', '--json');
+    expect(JSON.parse(r.sortie)).toMatchObject({ nouvelles: ['A-1', 'B-2'], absentes: [] });
+  });
+
+  it('sort en code 2 avec l’étape quand la page a changé de structure', async () => {
+    const home = homeComplet();
+    writeFileSync(join(home, 'recherches.yaml'), 'recherches:\n  - nom: c\n    categories: [C]\n');
+    expect(await csp(home, 'collecte', '--dry-run')).toMatchObject({
+      code: 2,
+      sortie: expect.stringContaining('[lire-compteur]'),
+    });
+  });
+
+  it('sans --dry-run : refus explicite (phase 4)', async () => {
+    expect(await csp(homeComplet(), 'collecte')).toMatchObject({
+      code: 1,
+      sortie: expect.stringContaining('--dry-run'),
+    });
   });
 });
