@@ -1,45 +1,34 @@
 #!/usr/bin/env -S node --use-system-ca --disable-warning=ExperimentalWarning
+import { existsSync } from 'node:fs';
 import { parseArgs, type ParseArgsConfig } from 'node:util';
-import { chargerEnv } from './config.ts';
+import { chargerEnv, chemins } from './config.ts';
+import type { Depot } from './db/depot.ts';
 import { codeDeSortie, UserError } from './erreurs.ts';
 import { appliquerProxy, utiliserCertificatsSysteme } from './http.ts';
 
-const USAGE = `Usage : csp <commande> …
+type Valeurs = Record<string, string | boolean | undefined>;
 
-  doctor                     Vérifie dossier local et droits, .env, recherches, accès au site et aux API
-  collecte [--dry-run] [--recherche <nom>] [--json]
-                             Parcourt les recherches, lit chaque offre, met la base à jour et prépare les
-                             textes à résumer ; --dry-run : listes seules, comparées à la base, rien n'est écrit
-  a-resumer [--json]         Offres en attente de résumé (identifiant, raison, texte brut, titre, lien)
-  resume enregistrer <id> <fichier.json>
-                             Valide un résumé écrit à la main ou par Claude, l'enregistre, purge le texte brut
-  resumer [--limite <n>] [--json]
-                             Résume la file par le fournisseur du .env (CSP_LLM_FOURNISSEUR : anthropic ou albert)
-
-Codes de sortie : 0 OK, 1 autre erreur, 2 casse du site, 3 site indisponible, 4 blocage (captcha, 403, 429).
-Données locales : ~/.config/csp-veille (variable CSP_HOME pour changer).`;
-
-/** Options de la ligne de commande ; une erreur de saisie devient un message lisible. */
-export function args(argv: string[], options: ParseArgsConfig['options'] = {}, positionals = 0) {
-  let parsed;
-  try {
-    parsed = parseArgs({ args: argv, options, allowPositionals: true, strict: true });
-  } catch (e) {
-    throw new UserError(`${(e as Error).message}\n\n${USAGE}`);
-  }
-  const extra = parsed.positionals.slice(positionals);
-  if (extra.length) throw new UserError(`Argument(s) inattendu(s) : ${extra.join(' ')}\n\n${USAGE}`);
-  if (parsed.positionals.length < positionals) throw new UserError(`Argument manquant.\n\n${USAGE}`);
-  return parsed;
+interface Commande {
+  /** Syntaxe affichée dans l'aide, après le nom de la commande. */
+  syntaxe?: string;
+  aide: string;
+  options?: ParseArgsConfig['options'];
+  /** Arguments positionnels attendus (exactement). */
+  positionnels?: number;
+  /** Code de sortie de la commande. Les modules sont chargés à la demande : `csp doctor` ne charge pas le AI SDK. */
+  executer(valeurs: Valeurs, positionnels: string[]): Promise<number>;
 }
 
+const JSON_OPTION = { json: { type: 'boolean' } } as const;
+const aujourdhui = async () => (await import('./collecte.ts')).jourParis(new Date());
+const afficher = (valeurs: Valeurs, donnee: unknown, texte: () => string) =>
+  console.log(valeurs.json ? JSON.stringify(donnee, null, 2) : texte());
+
 /** Ouvre la base (qui doit exister), exécute `fn`, referme. */
-async function avecDepot<T>(fn: (d: import('./db/depot.ts').Depot) => T | Promise<T>): Promise<T> {
-  const { chemins } = await import('./config.ts');
-  const { existsSync } = await import('node:fs');
-  const { Depot } = await import('./db/depot.ts');
+async function avecDepot<T>(fn: (d: Depot) => T | Promise<T>): Promise<T> {
   const base = chemins().base;
   if (!existsSync(base)) throw new UserError(`Base absente (${base}) : lancez d'abord csp collecte.`);
+  const { Depot } = await import('./db/depot.ts');
   const depot = new Depot(base);
   try {
     return await fn(depot);
@@ -48,71 +37,128 @@ async function avecDepot<T>(fn: (d: import('./db/depot.ts').Depot) => T | Promis
   }
 }
 
-async function main(argv: string[]): Promise<number> {
-  const [commande, ...reste] = argv;
-  switch (commande) {
-    case 'doctor': {
-      args(reste);
-      return (await import('./doctor.ts')).doctor();
-    }
-    case 'collecte': {
-      const { values } = args(reste, {
-        'dry-run': { type: 'boolean' },
-        recherche: { type: 'string' },
-        json: { type: 'boolean' },
-      });
+function entierOptionnel(brut: string | boolean | undefined, nom: string): number {
+  if (brut === undefined) return Infinity;
+  const n = Number(brut);
+  if (!Number.isInteger(n) || n < 0) throw new UserError(`--${nom} attend un entier positif : ${String(brut)}`);
+  return n;
+}
+
+const COMMANDES: Record<string, Commande> = {
+  doctor: {
+    aide: 'Vérifie dossier local et droits, .env, recherches, accès au site et aux API',
+    executer: async () => (await import('./doctor.ts')).doctor(),
+  },
+  collecte: {
+    syntaxe: '[--dry-run] [--recherche <nom>] [--json]',
+    aide:
+      'Parcourt les recherches, lit chaque offre, met la base à jour et prépare les textes à résumer ;\n' +
+      "--dry-run : listes seules, comparées à la base, rien n'est écrit",
+    options: { 'dry-run': { type: 'boolean' }, recherche: { type: 'string' }, ...JSON_OPTION },
+    async executer(v) {
       const { collecte, formaterBilan } = await import('./collecte.ts');
-      const bilan = await collecte({
-        dryRun: Boolean(values['dry-run']),
-        recherche: values.recherche as string | undefined,
-      });
-      console.log(values.json ? JSON.stringify(bilan, null, 2) : formaterBilan(bilan));
+      const bilan = await collecte({ dryRun: Boolean(v['dry-run']), recherche: v.recherche as string | undefined });
+      afficher(v, bilan, () => formaterBilan(bilan));
       return 0;
-    }
-    case 'a-resumer': {
-      const { values } = args(reste, { json: { type: 'boolean' } });
+    },
+  },
+  'a-resumer': {
+    syntaxe: '[--json]',
+    aide: 'Offres en attente de résumé (identifiant, raison, texte brut, titre, lien)',
+    options: JSON_OPTION,
+    async executer(v) {
       const { listerAResumer } = await import('./resume/resumer.ts');
-      const file = await avecDepot((d) => listerAResumer(d));
-      if (values.json) console.log(JSON.stringify(file, null, 2));
-      else if (!file.length) console.log('Aucune offre à résumer.');
-      else for (const a of file) console.log(`${a.id_offre} (${a.raison}) ${a.titre}\n  ${a.chemin_brut}`);
+      const file = await avecDepot(listerAResumer);
+      afficher(v, file, () =>
+        file.length
+          ? file.map((a) => `${a.id_offre} (${a.raison}) ${a.titre}\n  ${a.chemin_brut}`).join('\n')
+          : 'Aucune offre à résumer.',
+      );
       return 0;
-    }
-    case 'resume': {
-      const { positionals } = args(reste, {}, 3);
-      if (positionals[0] !== 'enregistrer')
-        throw new UserError(`Sous-commande inconnue : resume ${positionals[0]}\n\n${USAGE}`);
+    },
+  },
+  resume: {
+    syntaxe: 'enregistrer <id> <fichier.json>',
+    aide: "Valide un résumé écrit à la main ou par Claude, l'enregistre, purge le texte brut",
+    positionnels: 3,
+    async executer(_v, [sousCommande, id, fichier]) {
+      if (sousCommande !== 'enregistrer')
+        throw new UserError(`Sous-commande inconnue : resume ${sousCommande}\n\n${usage()}`);
       const { enregistrerResume, lireFichierJson } = await import('./resume/resumer.ts');
-      const { jourParis } = await import('./collecte.ts');
-      const json = lireFichierJson(positionals[2]);
-      await avecDepot((d) => enregistrerResume(d, positionals[1], json, { date: jourParis(new Date()) }));
-      console.log(`Résumé enregistré pour ${positionals[1]}, texte brut supprimé.`);
+      const json = lireFichierJson(fichier);
+      const date = await aujourdhui();
+      await avecDepot((d) => enregistrerResume(d, id, json, { date }));
+      console.log(`Résumé enregistré pour ${id}, texte brut supprimé.`);
       return 0;
-    }
-    case 'resumer': {
-      const { values } = args(reste, { limite: { type: 'string' }, json: { type: 'boolean' } });
-      const limite = values.limite === undefined ? Infinity : Number(values.limite);
-      if (!Number.isInteger(limite) && limite !== Infinity)
-        throw new UserError(`--limite attend un entier : ${String(values.limite)}`);
+    },
+  },
+  resumer: {
+    syntaxe: '[--limite <n>] [--json]',
+    aide: 'Résume la file par le fournisseur du .env (CSP_LLM_FOURNISSEUR : anthropic ou albert)',
+    options: { limite: { type: 'string' }, ...JSON_OPTION },
+    async executer(v) {
+      const limite = entierOptionnel(v.limite, 'limite');
       const { fournisseurDepuisEnv } = await import('./resume/fournisseurs.ts');
       const { resumerFile } = await import('./resume/resumer.ts');
-      const { jourParis } = await import('./collecte.ts');
       const fournisseur = fournisseurDepuisEnv();
-      const bilan = await avecDepot((d) => resumerFile(d, fournisseur, { date: jourParis(new Date()), limite }));
-      if (values.json) console.log(JSON.stringify(bilan, null, 2));
-      else {
-        console.log(`Fournisseur : ${bilan.fournisseur}`);
-        console.log(
+      const date = await aujourdhui();
+      const bilan = await avecDepot((d) => resumerFile(d, fournisseur, { date, limite }));
+      afficher(v, bilan, () =>
+        [
+          `Fournisseur : ${bilan.fournisseur}`,
           `Résumées : ${bilan.resumees.length}, échecs : ${bilan.echecs.length}, restantes : ${bilan.restantes}`,
-        );
-        for (const e of bilan.echecs) console.log(`  ${e.id_offre} : ${e.raison}`);
-      }
+          ...bilan.echecs.map((e) => `  ${e.id_offre} : ${e.raison}`),
+        ].join('\n'),
+      );
       return 0;
-    }
-    default:
-      console.log(USAGE);
-      return commande && !['-h', '--help', 'help'].includes(commande) ? 1 : 0;
+    },
+  },
+};
+
+const COLONNE = 29;
+
+function usage(): string {
+  const lignes = Object.entries(COMMANDES).flatMap(([nom, c]) => {
+    const tete = `  ${nom}${c.syntaxe ? ` ${c.syntaxe}` : ''}`;
+    const aide = c.aide.split('\n');
+    const decalage = ' '.repeat(COLONNE);
+    // Aide sur la même ligne si la syntaxe est courte, sinon en dessous.
+    return tete.length < COLONNE
+      ? [tete.padEnd(COLONNE) + aide[0], ...aide.slice(1).map((l) => decalage + l)]
+      : [tete, ...aide.map((l) => decalage + l)];
+  });
+  return [
+    'Usage : csp <commande> …',
+    '',
+    ...lignes,
+    '',
+    'Codes de sortie : 0 OK, 1 autre erreur, 2 casse du site, 3 site indisponible, 4 blocage (captcha, 403, 429).',
+    'Données locales : ~/.config/csp-veille (variable CSP_HOME pour changer).',
+  ].join('\n');
+}
+
+/** Options de la ligne de commande ; une erreur de saisie devient un message lisible. */
+export function args(argv: string[], options: ParseArgsConfig['options'] = {}, positionnels = 0) {
+  let analyse;
+  try {
+    analyse = parseArgs({ args: argv, options, allowPositionals: true, strict: true });
+  } catch (e) {
+    throw new UserError(`${(e as Error).message}\n\n${usage()}`);
   }
+  const enTrop = analyse.positionals.slice(positionnels);
+  if (enTrop.length) throw new UserError(`Argument(s) inattendu(s) : ${enTrop.join(' ')}\n\n${usage()}`);
+  if (analyse.positionals.length < positionnels) throw new UserError(`Argument manquant.\n\n${usage()}`);
+  return analyse;
+}
+
+async function main([nom, ...reste]: string[]): Promise<number> {
+  const commande = nom === undefined ? undefined : COMMANDES[nom];
+  if (!commande) {
+    console.log(usage());
+    return nom && !['-h', '--help', 'help'].includes(nom) ? 1 : 0;
+  }
+  const { values, positionals } = args(reste, commande.options, commande.positionnels);
+  return commande.executer(values as Valeurs, positionals);
 }
 
 // Tout fichier créé par le programme (base, journaux SQLite, textes bruts, diagnostics) : lisible par l'utilisateur seul.

@@ -2,7 +2,7 @@
 import type { AnyNode } from 'domhandler';
 import { CasseError } from '../erreurs.ts';
 import type { Offre } from '../db/schema.ts';
-import { analyser, tous, texte, un, type Element } from './dom.ts';
+import { analyser, tous, texte, un, type Element, type Noeud } from './dom.ts';
 import { dateNumerique, empreinte, normaliserTexte } from './normalisation.ts';
 import { ACCORDEONS_UTILES, DATE_LIMITE, DETAIL, LIBELLES_DETAIL, NON_RENSEIGNE, VACANCE } from './selecteurs.ts';
 
@@ -47,26 +47,21 @@ const BLOCS = new Set([
   'h6',
 ]);
 
-/** Texte avec retours à la ligne aux blocs et `## ` devant les intertitres (lisible par Claude). */
+const IGNORES = new Set(['script', 'style', 'button']);
+
+/** Morceaux de texte d'un nœud : `\n` autour des blocs, `## ` devant les intertitres, `- ` devant les puces. */
+function morceaux(n: AnyNode): string[] {
+  // Les retours à la ligne du source HTML ne sont pas des fins de ligne : seuls les blocs en créent.
+  if (n.type === 'text') return [n.data.replace(/\s+/g, ' ')];
+  if (n.type !== 'tag' || IGNORES.has(n.name)) return [];
+  const bloc = BLOCS.has(n.name) ? ['\n'] : [];
+  const prefixe = /^h[2-4]$/.test(n.name) ? ['## '] : n.name === 'li' ? ['- '] : [];
+  return [...bloc, ...prefixe, ...n.children.flatMap(morceaux), ...bloc];
+}
+
+/** Texte avec retours à la ligne aux blocs et `## ` devant les intertitres (lisible par un modèle). */
 function texteLignes(racine: AnyNode): string {
-  const morceaux: string[] = [];
-  const parcourir = (n: AnyNode) => {
-    if (n.type === 'text') {
-      // Les retours à la ligne du source HTML ne sont pas des fins de ligne : seuls les blocs en créent.
-      morceaux.push(n.data.replace(/\s+/g, ' '));
-      return;
-    }
-    if (n.type !== 'tag') return;
-    const nom = n.name;
-    if (nom === 'script' || nom === 'style' || nom === 'button') return;
-    if (BLOCS.has(nom)) morceaux.push('\n');
-    if (/^h[2-4]$/.test(nom)) morceaux.push('## ');
-    if (nom === 'li') morceaux.push('- ');
-    n.children.forEach(parcourir);
-    if (BLOCS.has(nom)) morceaux.push('\n');
-  };
-  parcourir(racine);
-  return morceaux
+  return morceaux(racine)
     .join('')
     .split('\n')
     .map(normaliserTexte)
@@ -104,16 +99,21 @@ function nature(t: string | null): Offre['type_contrat'] {
   return null;
 }
 
+const estTag = (n: AnyNode, nom: string) => n.type === 'tag' && n.name === nom;
+
 /** Première ligne d'un élément, sans son libellé caché (`span.sr-only`) ni ce qui suit un `<br>` (service secondaire). */
 function premiereLigne(el: Element | null): string | null {
   if (!el) return null;
-  const morceaux: string[] = [];
-  for (const enfant of el.children) {
-    if (enfant.type === 'tag' && enfant.name === 'br') break;
-    if (enfant.type === 'tag' && enfant.attribs.class === 'sr-only') continue;
-    morceaux.push(texte(enfant));
-  }
-  return valeur(normaliserTexte(morceaux.join(' ')));
+  const finLigne = el.children.findIndex((n) => estTag(n, 'br'));
+  const ligne = finLigne === -1 ? el.children : el.children.slice(0, finLigne);
+  const visibles = ligne.filter((n) => !(n.type === 'tag' && n.attribs.class === 'sr-only'));
+  return valeur(normaliserTexte(visibles.map(texte).join(' ')));
+}
+
+/** Map libellé → valeur à partir d'éléments ; `extraire` renvoie `null` pour ignorer un élément. */
+function parLibelle(elements: Element[], extraire: (el: Element) => [string, string] | null): Map<string, string> {
+  const paires = elements.map(extraire).filter((p): p is [string, string] => p !== null && p[0] !== '');
+  return new Map(paires);
 }
 
 interface JobPosting {
@@ -123,17 +123,20 @@ interface JobPosting {
   jobLocation?: { address?: { postalCode?: string } };
 }
 
-function lireJsonLd(racine: ReturnType<typeof analyser>): JobPosting {
-  for (const s of tous(DETAIL.jsonLd, racine)) {
-    try {
-      const d = JSON.parse(texte(s)) as { '@type'?: string } & JobPosting;
-      if (d['@type'] === 'JobPosting') return d;
-    } catch {
-      // JSON-LD illisible : les zones HTML suffisent, l'absence de champs obligatoires est contrôlée plus bas.
-    }
+function analyserJsonLd(script: Element): JobPosting | null {
+  try {
+    const d = JSON.parse(texte(script)) as { '@type'?: string } & JobPosting;
+    return d['@type'] === 'JobPosting' ? d : null;
+  } catch {
+    // JSON-LD illisible : les zones HTML suffisent, l'absence de champs obligatoires est contrôlée plus bas.
+    return null;
   }
-  return {};
 }
+
+const lireJsonLd = (racine: Noeud): JobPosting =>
+  tous(DETAIL.jsonLd, racine)
+    .map(analyserJsonLd)
+    .find((d) => d !== null) ?? {};
 
 export function lireDetail(html: string, idAttendu: string): Detail {
   const etape = 'lire-detail';
@@ -147,21 +150,18 @@ export function lireDetail(html: string, idAttendu: string): Detail {
   const titre = texte(un(DETAIL.titre, racine)) || normaliserTexte(jsonLd.title ?? '');
   if (!titre) throw new CasseError(etape, `titre introuvable (${DETAIL.titre})`);
 
-  const cellules = new Map<string, string>();
-  for (const li of tous(DETAIL.cellules, racine)) {
+  const cellules = parLibelle(tous(DETAIL.cellules, racine), (li) => {
     const libelle = texte(un(DETAIL.libelleCellule, li));
-    if (libelle) cellules.set(libelle, texte(li).slice(libelle.length).trim());
-  }
+    return [libelle, texte(li).slice(libelle.length).trim()];
+  });
   if (!cellules.has(LIBELLES_DETAIL.categorie) || !cellules.has(LIBELLES_DETAIL.nature)) {
     throw new CasseError(etape, `tableau des caractéristiques introuvable (${DETAIL.cellules})`);
   }
 
-  const accordeons = new Map<string, string>();
-  for (const s of tous(DETAIL.accordeons, racine)) {
-    const libelle = texte(un(DETAIL.libelleAccordeon, s));
-    const contenu = un(DETAIL.contenuAccordeon, s);
-    if (libelle && contenu) accordeons.set(libelle, texteLignes(contenu));
-  }
+  const accordeons = parLibelle(tous(DETAIL.accordeons, racine), (section) => {
+    const contenu = un(DETAIL.contenuAccordeon, section);
+    return contenu ? [texte(un(DETAIL.libelleAccordeon, section)), texteLignes(contenu)] : null;
+  });
 
   const texteLibre = un(DETAIL.texteLibre, racine);
   if (!texteLibre) throw new CasseError(etape, `texte de l'offre introuvable (${DETAIL.texteLibre})`);
