@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import type { Recherche } from '../config.ts';
 import { CasseError } from '../erreurs.ts';
+import { lireDetail, retirerCoordonnees } from '../scraper/detail.ts';
 import { lirePageListe } from '../scraper/liste.ts';
 import {
   cleComparaison,
@@ -179,5 +180,91 @@ describe('normalisation', () => {
     expect(dateNumerique('16/11/2026')).toBe('2026-11-16');
     expect(dateNumerique('30/02/2026')).toBeNull();
     expect(dateNumerique('2026-11-16')).toBeNull();
+  });
+});
+
+describe('page détail', () => {
+  const lire = (id: string, html = fixture(`detail-${id}`)) => lireDetail(html, id);
+
+  it.each([
+    [
+      '2026-2445380',
+      {
+        categorie: 'A',
+        management: null,
+        teletravail_possible: null,
+        departement: '06',
+        commune: null,
+        date_limite_candidature: '2026-11-16',
+        metier: 'Chargée / Chargé du recrutement',
+      },
+    ],
+    [
+      '2025-2136140',
+      {
+        code_postal: '45160',
+        commune: 'OLIVET',
+        management: false,
+        teletravail_possible: true,
+        date_limite_candidature: null,
+      },
+    ],
+    [
+      'DEF_30-00069655',
+      { lieu: 'ROUTE DEPT 97 45400 FLEURY LES AUBRAIS', commune: 'FLEURY LES AUBRAIS', date_prise_poste: '2026-07-15' },
+    ],
+    [
+      'MEF_2026-32647',
+      {
+        employeur: 'Direction générale des Entreprises (DGE)',
+        lieu: 'Loiret (45), France',
+        date_limite_candidature: '2026-10-30',
+      },
+    ],
+    [
+      'O045261014001282',
+      { management: true, lieu: 'Orléans', domaine: 'Culture et patrimoine', date_publication: '2026-10-14' },
+    ],
+  ] as const)('lit les champs structurés de %s', (id, attendu) => {
+    const d = lire(id);
+    expect(d).toMatchObject({ id_offre: id, type_contrat: 'titulaire_ou_contractuel', ...attendu });
+    expect(d.empreinte_detail).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('prépare un texte brut lisible, sans e-mail ni téléphone', () => {
+    const t = lire('2026-2445380').texte_brut;
+    expect(t.split('\n').slice(0, 4)).toEqual([
+      '# Chargé(e) de mission recrutement et attractivité',
+      'Employeur : Rectorat de Nice',
+      "Lieu : Rectorat de l'académie de Nice",
+      'Nature de l’emploi : Emploi ouvert aux titulaires et aux contractuels',
+    ]);
+    expect(t).toContain('## Vos missions en quelques mots');
+    expect(t).toContain('## Statut du poste\nVacant à partir du 16/11/2026');
+    expect(t).not.toContain('Qui sommes-nous');
+    expect(t).not.toMatch(/@|recommandées/);
+  });
+
+  it('retire e-mails et numéros, garde dates et références', () => {
+    expect(retirerCoordonnees('Écrire à jean.dupont@ac-nice.fr ou au 06 12 34 56 78 / +33 1 23 45 67 89')).toBe(
+      'Écrire à [coordonnée retirée] ou au [coordonnée retirée] / [coordonnée retirée]',
+    );
+    expect(retirerCoordonnees('Vacant au 16/11/2026, réf. O006260612001543')).toBe(
+      'Vacant au 16/11/2026, réf. O006260612001543',
+    );
+  });
+
+  it('échoue franchement si la référence ne correspond pas à l’offre attendue', () => {
+    expect(() => lireDetail(fixture('detail-2026-2445380'), 'AUTRE-1')).toThrow(
+      /\[lire-detail\] référence « 2026-2445380 »/,
+    );
+  });
+
+  it.each([
+    ['tableau', (h: string) => h.replaceAll('class="table"', 'class="x"'), 'tableau des caractéristiques'],
+    ['texte libre', (h: string) => h.replaceAll('col-left rte', 'col-left'), "texte de l'offre"],
+    ['titre', (h: string) => h.replace(/<h1[^>]*>[\s\S]*?<\/h1>/, '').replace(/"title"\s*:\s*"[^"]*",/, ''), 'titre'],
+  ])('échoue franchement si le %s disparaît', (_nom, casser, motif) => {
+    expect(() => lire('2026-2445380', casser(fixture('detail-2026-2445380')))).toThrow(motif);
   });
 });

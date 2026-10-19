@@ -49,6 +49,8 @@ export const offres = sqliteTable(
     latitude: real(),
     longitude: real(),
     precision_geo: text({ enum: PRECISIONS_GEO }),
+    /** Case « Télétravail possible » de la page (code) ; le nombre de jours vient du résumé. */
+    teletravail_possible: integer({ mode: 'boolean' }),
     teletravail_jours_semaine: real(),
     remuneration_min: integer(),
     remuneration_max: integer(),
@@ -90,6 +92,7 @@ export const offres = sqliteTable(
     check('offres_teletravail', sql`${t.teletravail_jours_semaine} BETWEEN 0 AND 5`),
     check('offres_remuneration', sql`${t.remuneration_min} >= 0 AND ${t.remuneration_max} >= 0`),
     check('offres_management', sql`${t.management} IN (0, 1)`),
+    check('offres_teletravail_possible', sql`${t.teletravail_possible} IN (0, 1)`),
     check('offres_effectifs', sql`${t.taille_equipe} >= 0 AND ${t.experience_annees_min} >= 0`),
     check('offres_json', sql`json_valid(${t.competences}) AND json_valid(${t.points_attention})`),
     check('offres_absences', sql`${t.absences_consecutives} >= 0`),
@@ -198,14 +201,20 @@ export type ChampsCode = Pick<
   | 'latitude'
   | 'longitude'
   | 'precision_geo'
+  | 'management'
+  | 'teletravail_possible'
   | 'date_publication'
   | 'date_limite_candidature'
+  | 'date_prise_poste'
   | 'empreinte_carte'
   | 'empreinte_detail'
   | 'empreinte_identite'
 >;
 
-/** Champs écrits par Claude à partir du texte libre (validés par zod en phase 6). */
+/**
+ * Champs écrits par Claude à partir du texte libre (validés par zod en phase 6). Les champs optionnels ne
+ * complètent que ce que le code n'a pas trouvé sur la page (PLAN §10 « code, sinon LLM »).
+ */
 export type ChampsResume = Pick<
   Offre,
   | 'duree_contrat_mois'
@@ -213,15 +222,15 @@ export type ChampsResume = Pick<
   | 'remuneration_min'
   | 'remuneration_max'
   | 'remuneration_texte'
-  | 'management'
   | 'taille_equipe'
   | 'experience_annees_min'
   | 'niveau_diplome'
-  | 'date_prise_poste'
 > & {
   resume: string;
   points_attention: string[];
   competences: string[];
   type_contrat?: Offre['type_contrat'];
   temps_travail?: Offre['temps_travail'];
+  management?: Offre['management'];
+  date_prise_poste?: Offre['date_prise_poste'];
 };

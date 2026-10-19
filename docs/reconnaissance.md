@@ -148,3 +148,21 @@ Sitemap: https://choisirleservicepublic.gouv.fr/sitemapindex.xml
   alors le compteur au mauvais nœud ; on utilise **parse5** (arbre identique au navigateur) + css-select.
 - Plafond de 200 pages : le lien « dernière page » plafonne bien à 200 ; non vérifié au-delà (une recherche ne doit pas l'atteindre).
 - Une recherche par mot-clé reste large (le site semble chercher chaque mot) : combiner avec des filtres.
+
+## Vérifié en phase 4 (page détail, 5 offres de versants et ministères différents)
+
+- Structure identique sur toutes : référence (`p.number`), titre (`h1`), employeur (`li.ic--user`, service secondaire après `<br>`),
+  lieu (`li.ic--pin`), tableau `ul.table > li.table-cell`, texte libre `div.col-left.rte`.
+- **Lieu** très variable : adresse complète (« ROUTE DEPT 97 45400 FLEURY LES AUBRAIS »), commune (« Orléans »), service
+  (« Rectorat de l'académie de Nice ») ou département (« Loiret (45), France »). Code postal et commune extraits seulement si
+  « NNNNN Commune » ; sinon le texte brut sert au géocodage (phase 5).
+- **« À propos de l'offre »** : accordéons DSFR (`section.fr-accordion`, libellé dans `.fr-accordion__btn`, contenu dans
+  `.fr-collapse`) — Informations complémentaires, Conditions particulières d'exercice, Fondement juridique,
+  **Statut du poste** (« Vacant à partir du 01/12/2026 » → `date_prise_poste`), **Métier de référence** (→ `metier`).
+- Management et Télétravail possible : « Oui », « Non » ou « Non renseigné ».
+- Contacts : dans « Éléments de candidature » ou au fil du texte (« Personnes à contacter : … ») → retirés du texte brut.
+- Sections exclues de l'empreinte et du texte brut : « Qui sommes-nous ? » (présentation générique de l'employeur), offres
+  recommandées, attributs générés (`fav-…`, `accordion-…`).
+- Deux postes identiques (même titre, employeur, lieu) peuvent être en ligne en même temps sous deux références : une
+  republication n'est signalée que si l'offre d'origine n'est plus en ligne.
+- Deux collectes successives le même jour : 54 offres inchangées sur 54 (stabilité sur deux jours à confirmer au rodage).

@@ -83,7 +83,7 @@ Tâche planifiée Claude (6h, Mac allumé)
 ## 5. Pièges identifiés (et parade)
 
 - **Dates relatives dans la page** (« publiée il y a 3 jours », nb de vues) → l'empreinte changerait chaque jour → normalisation : ne hasher que le bloc de contenu de l'offre, retirer les parties volatiles (liste explicite, testée)
-- **Offre republiée avec un nouvel id** → doublon → détection par empreinte `titre + employeur + commune` → colonne `republication_de`
+- **Offre republiée avec un nouvel id** → doublon → détection par empreinte `titre + employeur + commune` → colonne `republication_de` (seulement si l'offre d'origine n'est plus en ligne : deux postes identiques peuvent coexister)
 - **Offre dans plusieurs recherches** → table de liaison `recherches_offres`, une seule fiche
 - **Disparition temporaire** (site lent, page manquée) → expirée seulement après 3 absences consécutives ET collecte complète réussie
 - **Collecte partielle** (crash au milieu) → transaction par offre, collecte idempotente : relancer ne casse rien ; une collecte incomplète n'expire jamais d'offres
@@ -91,9 +91,10 @@ Tâche planifiée Claude (6h, Mac allumé)
 - **Résumé LLM qui invente** → champs à `null` si absents du texte, schéma zod strict, champs factuels (catégorie, lieu, dates) extraits par le code depuis les zones structurées de la page, pas par le LLM
 - **Contenu d'offre = donnée non fiable** (injection de prompt possible dans le texte libre) → voir §8
 - **Pagination plafonnée à 200 pages** (4 000 offres) → recherche qui atteint le plafond = collecte incomplète (pas d'expiration), signalée dans le rapport ; garder des recherches étroites
-- **Contacts recruteurs dans le texte libre** (noms, e-mails) → jamais en base, retirés du résumé
+- **Contacts recruteurs dans le texte libre** (noms, e-mails) → jamais en base ; e-mails et téléphones retirés du texte brut avant écriture sur disque
 - **Filtres du site peu fiables** (versant, géolocalisation) → filtrage local, libellé inconnu conservé plutôt qu'écarté
 - **Texte du site affiché au terminal** → caractères de contrôle retirés à la normalisation (pas d'injection de séquences d'échappement)
+- **Migration générée qui recrée une table** (drizzle-kit) → `ON DELETE CASCADE` viderait les tables liées : `ALTER TABLE … ADD` écrit à la main, test de migration avec données
 - **Anti-bot / captcha / 403** → arrêt immédiat, code 4, jamais de contournement
 - **Mac en veille à 6h** → `sudo pmset repeat wakeorpoweron MTWRFSU 05:55:00` pour le réveiller
 

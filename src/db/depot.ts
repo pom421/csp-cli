@@ -123,6 +123,8 @@ export class Depot {
             // Peuvent venir du résumé (PLAN §10 « code, sinon LLM ») ; l'empreinte reste celle du dernier détail lu.
             type_contrat: sql`coalesce(${proposee('type_contrat')}, ${offres.type_contrat})`,
             temps_travail: sql`coalesce(${proposee('temps_travail')}, ${offres.temps_travail})`,
+            management: sql`coalesce(${proposee('management')}, ${offres.management})`,
+            date_prise_poste: sql`coalesce(${proposee('date_prise_poste')}, ${offres.date_prise_poste})`,
             empreinte_detail: sql`coalesce(${proposee('empreinte_detail')}, ${offres.empreinte_detail})`,
             date_derniere_vue: date,
             date_maj_detail: sql`coalesce(${dateMaj}, ${offres.date_maj_detail})`,
@@ -230,13 +232,15 @@ export class Depot {
   /** Écrit les champs du résumé et retire l'offre de la file, en une transaction. */
   enregistrerResume(idOffre: string, r: ChampsResume, date: string): void {
     this.transaction(() => {
-      const { type_contrat, temps_travail, ...champs } = r;
+      const { type_contrat, temps_travail, management, date_prise_poste, ...champs } = r;
       const res = this.db
         .update(offres)
         .set({
           ...champs,
           type_contrat: sql`coalesce(${offres.type_contrat}, ${type_contrat ?? null})`,
           temps_travail: sql`coalesce(${offres.temps_travail}, ${temps_travail ?? null})`,
+          management: sql`coalesce(${offres.management}, ${management === undefined || management === null ? null : Number(management)})`,
+          date_prise_poste: sql`coalesce(${offres.date_prise_poste}, ${date_prise_poste ?? null})`,
           date_resume: date,
         })
         .where(eq(offres.id_offre, idOffre))

@@ -7,8 +7,9 @@ import { appliquerProxy, utiliserCertificatsSysteme } from './http.ts';
 const USAGE = `Usage : csp <commande> …
 
   doctor                     Vérifie dossier local et droits, .env, recherches, accès au site et aux API
-  collecte --dry-run [--recherche <nom>] [--json]
-                             Parcourt les recherches et compare à la base, sans rien écrire
+  collecte [--dry-run] [--recherche <nom>] [--json]
+                             Parcourt les recherches, lit chaque offre, met la base à jour et prépare les
+                             textes à résumer ; --dry-run : listes seules, comparées à la base, rien n'est écrit
 
 Codes de sortie : 0 OK, 1 autre erreur, 2 casse du site, 3 site indisponible, 4 blocage (captcha, 403, 429).
 Données locales : ~/.config/csp-veille (variable CSP_HOME pour changer).`;

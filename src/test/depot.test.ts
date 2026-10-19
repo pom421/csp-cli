@@ -1,8 +1,11 @@
-import { mkdtempSync, statSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, statSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
+import { drizzle } from 'drizzle-orm/node-sqlite';
+import { migrate } from 'drizzle-orm/node-sqlite/migrator';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
-import { Depot } from '../db/depot.ts';
+import { Depot, DOSSIER_MIGRATIONS } from '../db/depot.ts';
 import type { ChampsCode, ChampsResume } from '../db/schema.ts';
 
 const J1 = '2026-10-19';
@@ -27,8 +30,11 @@ function offre(champs: Partial<ChampsCode> = {}): ChampsCode {
     latitude: null,
     longitude: null,
     precision_geo: null,
+    management: null,
+    teletravail_possible: null,
     date_publication: J1,
     date_limite_candidature: '2026-11-16',
+    date_prise_poste: null,
     empreinte_carte: 'c1',
     empreinte_detail: 'd1',
     empreinte_identite: 'i1',
@@ -71,6 +77,28 @@ describe('migrations', () => {
     const appliquees = d2.client.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get() as { n: number };
     expect(appliquees.n).toBeGreaterThan(0);
     d2.fermer();
+  });
+
+  it('gardent les données des tables liées (aucune recréation de table destructrice)', () => {
+    // Une base créée par la première migration seule, avec des lignes liées, puis amenée à la dernière version.
+    const dossier = mkdtempSync(join(tmpdir(), 'csp-'));
+    const premiere = join(dossier, 'migrations');
+    const toutes = readdirSync(DOSSIER_MIGRATIONS).sort();
+    mkdirSync(join(premiere, toutes[0]), { recursive: true });
+    cpSync(join(DOSSIER_MIGRATIONS, toutes[0]), join(premiere, toutes[0]), { recursive: true });
+    const chemin = join(dossier, 'csp.sqlite');
+    const client = new DatabaseSync(chemin);
+    client.exec('PRAGMA foreign_keys = ON');
+    migrate(drizzle({ client }), { migrationsFolder: premiere });
+    client.exec(`INSERT INTO offres (id_offre, url, titre, date_premiere_vue, date_derniere_vue) VALUES ('X', 'u', 't', 'd', 'd');
+      INSERT INTO recherches_offres VALUES ('r', 'X');
+      INSERT INTO a_resumer VALUES ('X', 'nouvelle', '/brut/X.txt', 'd');`);
+    client.close();
+    const d = new Depot(chemin);
+    expect(d.recherchesDe('X')).toEqual(['r']);
+    expect(d.aResumer()).toHaveLength(1);
+    expect(d.obtenirOffre('X')).toMatchObject({ teletravail_possible: null });
+    d.fermer();
   });
 });
 

@@ -35,3 +35,45 @@ export const REFERENCE_URL = /-reference-([A-Za-z0-9][A-Za-z0-9_-]*)\/?$/;
 
 /** « Loiret (45) », « Corse du Sud (2A) », « Guadeloupe (971) ». */
 export const DEPARTEMENT_LOCALISATION = /^(.*?)\s*\((\d{2,3}|2[AB])\)$/i;
+
+export const DETAIL = {
+  reference: 'p.number',
+  titre: 'h1',
+  /** Données structurées schema.org JobPosting. */
+  jsonLd: 'script[type="application/ld+json"]',
+  employeur: 'li.ic--user',
+  lieu: 'li.ic--pin',
+  /** Tableau « Nature de l'emploi », « Catégorie »… : `<strong>Libellé</strong>` puis valeur. */
+  cellules: 'ul.table > li.table-cell',
+  libelleCellule: 'strong',
+  /** Texte libre : missions, profil recherché, compétences. */
+  texteLibre: 'div.col-left.rte',
+  /** Accordéons de « À propos de l'offre » : libellé dans le bouton, contenu dans le volet. */
+  accordeons: 'section.fr-accordion',
+  libelleAccordeon: '.fr-accordion__btn',
+  contenuAccordeon: '.fr-collapse',
+} as const;
+
+export const LIBELLES_DETAIL = {
+  nature: 'Nature de l’emploi',
+  experience: 'Expérience souhaitée',
+  remuneration: 'Rémunération',
+  categorie: 'Catégorie',
+  management: 'Management',
+  teletravail: 'Télétravail possible',
+  statutPoste: 'Statut du poste',
+  metier: 'Métier de référence',
+} as const;
+
+/** Accordéons recopiés dans le texte brut à résumer (le reste : présentation générique de l'employeur). */
+export const ACCORDEONS_UTILES = [
+  'Informations complémentaires',
+  'Conditions particulières d’exercice',
+  'Fondement juridique',
+  'Statut du poste',
+  'Métier de référence',
+];
+
+export const DATE_LIMITE = /date limite de candidature\s*:\s*(\d{1,2}\/\d{1,2}\/\d{4})/i;
+export const VACANCE = /(\d{1,2}\/\d{1,2}\/\d{4})/;
+export const NON_RENSEIGNE = /^non renseignée?$/i;

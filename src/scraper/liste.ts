@@ -13,7 +13,7 @@ import {
   LISTE,
   REFERENCE_URL,
 } from './selecteurs.ts';
-import type { SourcePages } from './source.ts';
+import { PageAbsenteError, type SourcePages } from './source.ts';
 import { PAGES_MAX, urlRecherche } from './url.ts';
 
 export interface Carte {
@@ -124,7 +124,15 @@ export async function parcourirRecherche(source: SourcePages, recherche: Recherc
   let page = 1;
   let tronquee = false;
   for (;;) {
-    const html = await source.html(urlRecherche(recherche, page), page === 1 ? 'ouvrir-recherche' : 'page-suivante');
+    const etape = page === 1 ? 'ouvrir-recherche' : 'page-suivante';
+    let html: string;
+    try {
+      html = await source.html(urlRecherche(recherche, page), etape);
+    } catch (e) {
+      // Une page de résultats introuvable n'est pas une offre retirée : l'URL de recherche ne marche plus.
+      if (e instanceof PageAbsenteError) throw new CasseError(etape, e.message);
+      throw e;
+    }
     const lue = lirePageListe(html);
     if (page === 1) total = lue.total;
     cartes.push(...lue.cartes);

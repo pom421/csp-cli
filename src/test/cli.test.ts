@@ -1,12 +1,12 @@
 // Tests de bout en bout : le binaire est lancé dans un sous-processus, contre le faux site.
 import { execFile } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { demarrer, robotsParDefaut } from './faux-site.ts';
-import { pageMinimale } from './outils.ts';
+import { fixture, pageMinimale } from './outils.ts';
 
 const CLI = new URL('../cli.ts', import.meta.url).pathname;
 
@@ -18,6 +18,11 @@ beforeAll(async () => {
     else if (req.url === '/nos-offres/page/2/') res.writeHead(200).end(pageMinimale('B-2', false));
     else if (req.url === '/nos-offres/filtres/categorie/1807/')
       res.writeHead(200).end('<html><body>refonte</body></html>');
+    // Recherche catégorie B : une offre dont la page détail est servie depuis la fixture.
+    else if (req.url === '/nos-offres/filtres/categorie/1806/')
+      res.writeHead(200).end(pageMinimale('2026-2445380', false));
+    else if (req.url === '/offre-emploi/poste-reference-2026-2445380/')
+      res.writeHead(200).end(fixture('detail-2026-2445380'));
     else robotsParDefaut(req, res);
   });
 });
@@ -119,10 +124,14 @@ describe('csp collecte', () => {
     });
   });
 
-  it('sans --dry-run : refus explicite (phase 4)', async () => {
-    expect(await csp(homeComplet(), 'collecte')).toMatchObject({
-      code: 1,
-      sortie: expect.stringContaining('--dry-run'),
-    });
+  it('sans --dry-run : lit le détail, crée la base en 0600 et le texte brut à résumer', async () => {
+    const home = homeComplet();
+    writeFileSync(join(home, 'recherches.yaml'), 'recherches:\n  - nom: b\n    categories: [B]\n');
+    const r = await csp(home, 'collecte');
+    expect(r).toMatchObject({ code: 0, sortie: expect.stringContaining('nouvelles : 1') });
+    expect(r.sortie).toContain('À résumer : 1');
+    expect(statSync(join(home, 'csp.sqlite')).mode & 0o777).toBe(0o600);
+    expect(statSync(join(home, 'brut', '2026-2445380.txt')).mode & 0o777).toBe(0o600);
+    expect((await csp(home, 'collecte')).sortie).toContain('inchangées : 1');
   });
 });
