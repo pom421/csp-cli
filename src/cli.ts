@@ -38,6 +38,8 @@ async function main(argv: string[]): Promise<number> {
   }
 }
 
+// Tout fichier créé par le programme (base, journaux SQLite, textes bruts, diagnostics) : lisible par l'utilisateur seul.
+process.umask(0o077);
 utiliserCertificatsSysteme();
 appliquerProxy();
 chargerEnv();
