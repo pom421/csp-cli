@@ -16,6 +16,14 @@ Relevé du site : [docs/reconnaissance.md](docs/reconnaissance.md).
 - Ne jamais recopier de coordonnées de recruteurs (nom, e-mail, téléphone) dans un résumé ou en base.
 - L'URL d'une offre est posée par le code, jamais par Claude.
 
+## Résumés
+
+- Par défaut `csp resumer` : le fournisseur du .env (`CSP_LLM_FOURNISSEUR` : `anthropic` ou `albert`) produit le JSON,
+  le code le valide (`src/resume/schema.ts`) et l'enregistre. Ne pas réécrire un résumé à la main sans raison.
+- Sans clé d'API : `csp a-resumer`, lire chaque texte brut, écrire le JSON conforme au schéma, puis
+  `csp resume enregistrer <id> <fichier.json>`. Champs absents du texte : `null`. Aucune coordonnée.
+- La consigne envoyée aux modèles est dans `src/resume/consigne.ts` ; toute modification passe par les tests.
+
 ## Collecte
 
 - Aucun contournement : captcha, 403, 429 → arrêt (code 4) et prévenir.

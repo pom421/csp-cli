@@ -10,6 +10,24 @@ import { fixture, pageMinimale } from './outils.ts';
 
 const CLI = new URL('../cli.ts', import.meta.url).pathname;
 
+const RESUME = {
+  resume: '- Missions\n- Profil\n- Conditions',
+  points_attention: [],
+  competences: ['GRH'],
+  type_contrat: null,
+  duree_contrat_mois: null,
+  temps_travail: null,
+  teletravail_jours_semaine: null,
+  remuneration_min: null,
+  remuneration_max: null,
+  remuneration_texte: null,
+  management: null,
+  taille_equipe: null,
+  experience_annees_min: null,
+  niveau_diplome: null,
+  date_prise_poste: null,
+};
+
 let site: Awaited<ReturnType<typeof demarrer>>;
 beforeAll(async () => {
   site = await demarrer((req, res) => {
@@ -23,7 +41,15 @@ beforeAll(async () => {
       res.writeHead(200).end(pageMinimale('2026-2445380', false));
     else if (req.url === '/offre-emploi/poste-reference-2026-2445380/')
       res.writeHead(200).end(fixture('detail-2026-2445380'));
-    else robotsParDefaut(req, res);
+    // Faux Albert : renvoie toujours le même résumé valide.
+    else if (req.url === '/v1/chat/completions' && req.method === 'POST') {
+      req.resume();
+      req.on('end', () =>
+        res
+          .writeHead(200, { 'content-type': 'application/json' })
+          .end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(RESUME) }, finish_reason: 'stop' }] })),
+      );
+    } else robotsParDefaut(req, res);
   });
 });
 afterAll(() => site.fermer());
@@ -36,6 +62,7 @@ async function csp(home: string, ...argv: string[]) {
     CSP_GEOCODAGE_URL: site.url,
     CSP_TRAJETS_URL: site.url,
     CSP_DELAI_MS: '0',
+    CSP_ALBERT_URL: site.url,
   };
   try {
     const { stdout, stderr } = await promisify(execFile)(
@@ -133,5 +160,58 @@ describe('csp collecte', () => {
     expect(statSync(join(home, 'csp.sqlite')).mode & 0o777).toBe(0o600);
     expect(statSync(join(home, 'brut', '2026-2445380.txt')).mode & 0o777).toBe(0o600);
     expect((await csp(home, 'collecte')).sortie).toContain('inchangées : 1');
+  });
+});
+
+describe('csp a-resumer, resume enregistrer, resumer', () => {
+  async function homeAvecFile() {
+    const home = homeComplet();
+    writeFileSync(join(home, 'recherches.yaml'), 'recherches:\n  - nom: b\n    categories: [B]\n');
+    await csp(home, 'collecte');
+    return home;
+  }
+
+  it('liste la file, enregistre un résumé écrit à la main et purge le texte brut', async () => {
+    const home = await homeAvecFile();
+    const file = JSON.parse((await csp(home, 'a-resumer', '--json')).sortie) as {
+      id_offre: string;
+      chemin_brut: string;
+    }[];
+    expect(file.map((a) => a.id_offre)).toEqual(['2026-2445380']);
+    const json = join(home, 'resume.json');
+    writeFileSync(json, JSON.stringify(RESUME));
+    expect(await csp(home, 'resume', 'enregistrer', '2026-2445380', json)).toMatchObject({ code: 0 });
+    expect(existsSync(file[0].chemin_brut)).toBe(false);
+    expect((await csp(home, 'a-resumer')).sortie).toContain('Aucune offre à résumer');
+  });
+
+  it('refuse un résumé invalide sans toucher à la file', async () => {
+    const home = await homeAvecFile();
+    const json = join(home, 'resume.json');
+    writeFileSync(json, JSON.stringify({ ...RESUME, resume: 'Contact : a.b@exemple.fr' }));
+    expect(await csp(home, 'resume', 'enregistrer', '2026-2445380', json)).toMatchObject({
+      code: 1,
+      sortie: expect.stringContaining('contient une coordonnée'),
+    });
+    expect((await csp(home, 'a-resumer')).sortie).toContain('2026-2445380');
+  });
+
+  it('resumer passe par le fournisseur du .env (Albert)', async () => {
+    const home = await homeAvecFile();
+    writeFileSync(
+      join(home, '.env'),
+      'CSP_LLM_FOURNISSEUR=albert\nCSP_LLM_CLE=cle-de-test-albert\nCSP_LLM_MODELE=albert-large\n',
+      { mode: 0o600 },
+    );
+    const r = await csp(home, 'resumer');
+    expect(r).toMatchObject({ code: 0, sortie: expect.stringContaining('Fournisseur : albert (albert-large)') });
+    expect(r.sortie).toContain('Résumées : 1, échecs : 0, restantes : 0');
+  });
+
+  it('sans base : message explicite', async () => {
+    expect(await csp(homeComplet(), 'a-resumer')).toMatchObject({
+      code: 1,
+      sortie: expect.stringContaining('csp collecte'),
+    });
   });
 });
