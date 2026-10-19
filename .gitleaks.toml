@@ -1,0 +1,22 @@
+# Configuration gitleaks : règles par défaut + données propres à ce projet.
+#   gitleaks git --redact          (historique)
+#   pnpm secrets:scan              (historique + fichiers non commités)
+
+[extend]
+useDefault = true
+
+# Adresse de départ des trajets (donnée personnelle) : ne doit exister que dans
+# ~/.config/csp-veille/.env. Toute valeur autre que l'exemple est signalée.
+[[rules]]
+id = "csp-origine-trajet"
+description = "Adresse de départ (CSP_ORIGINE_TRAJET) hors du .env local"
+regex = '''CSP_ORIGINE_TRAJET\s*=\s*["']?([^"'\n]{4,})'''
+secretGroup = 1
+keywords = ["csp_origine_trajet"]
+[[rules.allowlists]]
+regexTarget = "match"
+regexes = ['''adresse de départ''', '''process\.env''']
+
+[allowlist]
+description = "Fichiers sans secret réel"
+paths = ['''(^|/)pnpm-lock\.yaml$''']
