@@ -1,0 +1,1007 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "id": "1e828803-45ea-4c38-be83-06fec2363eb4",
+  "prevIds": [
+    "310853e4-3969-4611-afe7-d182de03d3a3"
+  ],
+  "ddl": [
+    {
+      "name": "a_resumer",
+      "entityType": "tables"
+    },
+    {
+      "name": "executions",
+      "entityType": "tables"
+    },
+    {
+      "name": "geocodage_cache",
+      "entityType": "tables"
+    },
+    {
+      "name": "offres",
+      "entityType": "tables"
+    },
+    {
+      "name": "recherches_offres",
+      "entityType": "tables"
+    },
+    {
+      "name": "trajets_cache",
+      "entityType": "tables"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id_offre",
+      "entityType": "columns",
+      "table": "a_resumer"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "raison",
+      "entityType": "columns",
+      "table": "a_resumer"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "chemin_brut",
+      "entityType": "columns",
+      "table": "a_resumer"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "date",
+      "entityType": "columns",
+      "table": "a_resumer"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "executions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "debut",
+      "entityType": "columns",
+      "table": "executions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "fin",
+      "entityType": "columns",
+      "table": "executions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'en_cours'",
+      "generated": null,
+      "name": "statut",
+      "entityType": "columns",
+      "table": "executions"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "code_sortie",
+      "entityType": "columns",
+      "table": "executions"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "nb_cartes",
+      "entityType": "columns",
+      "table": "executions"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "nb_nouvelles",
+      "entityType": "columns",
+      "table": "executions"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "nb_modifiees",
+      "entityType": "columns",
+      "table": "executions"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "nb_expirees",
+      "entityType": "columns",
+      "table": "executions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "message",
+      "entityType": "columns",
+      "table": "executions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "cle_lieu",
+      "entityType": "columns",
+      "table": "geocodage_cache"
+    },
+    {
+      "type": "real",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "latitude",
+      "entityType": "columns",
+      "table": "geocodage_cache"
+    },
+    {
+      "type": "real",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "longitude",
+      "entityType": "columns",
+      "table": "geocodage_cache"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "precision_geo",
+      "entityType": "columns",
+      "table": "geocodage_cache"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source",
+      "entityType": "columns",
+      "table": "geocodage_cache"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "date",
+      "entityType": "columns",
+      "table": "geocodage_cache"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id_offre",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "url",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "titre",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "employeur",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "versant",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "categorie",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "type_contrat",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "duree_contrat_mois",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "temps_travail",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "metier",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "domaine",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "adresse",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "commune",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "code_postal",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "departement",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "latitude",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "longitude",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "precision_geo",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "teletravail_possible",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "teletravail_jours_semaine",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "remuneration_min",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "remuneration_max",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "remuneration_texte",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "management",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "taille_equipe",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "experience_annees_min",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "niveau_diplome",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "competences",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "date_publication",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "date_limite_candidature",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "date_prise_poste",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "resume",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "points_attention",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "empreinte_carte",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "empreinte_detail",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "empreinte_identite",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'active'",
+      "generated": null,
+      "name": "statut",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "name": "absences_consecutives",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "republication_de",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "date_premiere_vue",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "date_derniere_vue",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "date_maj_detail",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "date_resume",
+      "entityType": "columns",
+      "table": "offres"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "nom_recherche",
+      "entityType": "columns",
+      "table": "recherches_offres"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id_offre",
+      "entityType": "columns",
+      "table": "recherches_offres"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "cle_origine",
+      "entityType": "columns",
+      "table": "trajets_cache"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "cle_destination",
+      "entityType": "columns",
+      "table": "trajets_cache"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "heure_ref",
+      "entityType": "columns",
+      "table": "trajets_cache"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "duree_min",
+      "entityType": "columns",
+      "table": "trajets_cache"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "nb_correspondances",
+      "entityType": "columns",
+      "table": "trajets_cache"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "date",
+      "entityType": "columns",
+      "table": "trajets_cache"
+    },
+    {
+      "columns": [
+        "id_offre"
+      ],
+      "tableTo": "offres",
+      "columnsTo": [
+        "id_offre"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_a_resumer_id_offre_offres_id_offre_fk",
+      "entityType": "fks",
+      "table": "a_resumer"
+    },
+    {
+      "columns": [
+        "republication_de"
+      ],
+      "tableTo": "offres",
+      "columnsTo": [
+        "id_offre"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "nameExplicit": false,
+      "name": "fk_offres_republication_de_offres_id_offre_fk",
+      "entityType": "fks",
+      "table": "offres"
+    },
+    {
+      "columns": [
+        "id_offre"
+      ],
+      "tableTo": "offres",
+      "columnsTo": [
+        "id_offre"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_recherches_offres_id_offre_offres_id_offre_fk",
+      "entityType": "fks",
+      "table": "recherches_offres"
+    },
+    {
+      "columns": [
+        "nom_recherche",
+        "id_offre"
+      ],
+      "nameExplicit": false,
+      "name": "recherches_offres_pk",
+      "entityType": "pks",
+      "table": "recherches_offres"
+    },
+    {
+      "columns": [
+        "cle_origine",
+        "cle_destination",
+        "heure_ref"
+      ],
+      "nameExplicit": false,
+      "name": "trajets_cache_pk",
+      "entityType": "pks",
+      "table": "trajets_cache"
+    },
+    {
+      "columns": [
+        "id_offre"
+      ],
+      "nameExplicit": false,
+      "name": "a_resumer_pk",
+      "table": "a_resumer",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "executions_pk",
+      "table": "executions",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "cle_lieu"
+      ],
+      "nameExplicit": false,
+      "name": "geocodage_cache_pk",
+      "table": "geocodage_cache",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id_offre"
+      ],
+      "nameExplicit": false,
+      "name": "offres_pk",
+      "table": "offres",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        {
+          "value": "empreinte_identite",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "offres_empreinte_identite",
+      "entityType": "indexes",
+      "table": "offres"
+    },
+    {
+      "columns": [
+        {
+          "value": "statut",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "offres_statut",
+      "entityType": "indexes",
+      "table": "offres"
+    },
+    {
+      "value": "\"raison\" IN ('nouvelle', 'modifiee')",
+      "name": "a_resumer_raison",
+      "entityType": "checks",
+      "table": "a_resumer"
+    },
+    {
+      "value": "\"statut\" IN ('en_cours', 'complete', 'incomplete', 'echec')",
+      "name": "executions_statut",
+      "entityType": "checks",
+      "table": "executions"
+    },
+    {
+      "value": "\"latitude\" BETWEEN -90 AND 90",
+      "name": "geocodage_latitude",
+      "entityType": "checks",
+      "table": "geocodage_cache"
+    },
+    {
+      "value": "\"longitude\" BETWEEN -180 AND 180",
+      "name": "geocodage_longitude",
+      "entityType": "checks",
+      "table": "geocodage_cache"
+    },
+    {
+      "value": "\"precision_geo\" IN ('adresse', 'commune')",
+      "name": "geocodage_precision",
+      "entityType": "checks",
+      "table": "geocodage_cache"
+    },
+    {
+      "value": "\"versant\" IN ('FPE', 'FPT', 'FPH')",
+      "name": "offres_versant",
+      "entityType": "checks",
+      "table": "offres"
+    },
+    {
+      "value": "\"categorie\" IN ('A+', 'A', 'B', 'C')",
+      "name": "offres_categorie",
+      "entityType": "checks",
+      "table": "offres"
+    },
+    {
+      "value": "\"type_contrat\" IN ('titulaire', 'contractuel', 'titulaire_ou_contractuel')",
+      "name": "offres_type_contrat",
+      "entityType": "checks",
+      "table": "offres"
+    },
+    {
+      "value": "\"temps_travail\" IN ('complet', 'partiel')",
+      "name": "offres_temps_travail",
+      "entityType": "checks",
+      "table": "offres"
+    },
+    {
+      "value": "\"precision_geo\" IN ('adresse', 'commune')",
+      "name": "offres_precision_geo",
+      "entityType": "checks",
+      "table": "offres"
+    },
+    {
+      "value": "\"statut\" IN ('active', 'cloturee', 'expiree')",
+      "name": "offres_statut",
+      "entityType": "checks",
+      "table": "offres"
+    },
+    {
+      "value": "\"duree_contrat_mois\" > 0",
+      "name": "offres_duree_contrat",
+      "entityType": "checks",
+      "table": "offres"
+    },
+    {
+      "value": "\"latitude\" BETWEEN -90 AND 90",
+      "name": "offres_latitude",
+      "entityType": "checks",
+      "table": "offres"
+    },
+    {
+      "value": "\"longitude\" BETWEEN -180 AND 180",
+      "name": "offres_longitude",
+      "entityType": "checks",
+      "table": "offres"
+    },
+    {
+      "value": "\"teletravail_jours_semaine\" BETWEEN 0 AND 5",
+      "name": "offres_teletravail",
+      "entityType": "checks",
+      "table": "offres"
+    },
+    {
+      "value": "\"remuneration_min\" >= 0 AND \"remuneration_max\" >= 0",
+      "name": "offres_remuneration",
+      "entityType": "checks",
+      "table": "offres"
+    },
+    {
+      "value": "\"management\" IN (0, 1)",
+      "name": "offres_management",
+      "entityType": "checks",
+      "table": "offres"
+    },
+    {
+      "value": "\"teletravail_possible\" IN (0, 1)",
+      "name": "offres_teletravail_possible",
+      "entityType": "checks",
+      "table": "offres"
+    },
+    {
+      "value": "\"taille_equipe\" >= 0 AND \"experience_annees_min\" >= 0",
+      "name": "offres_effectifs",
+      "entityType": "checks",
+      "table": "offres"
+    },
+    {
+      "value": "json_valid(\"competences\") AND json_valid(\"points_attention\")",
+      "name": "offres_json",
+      "entityType": "checks",
+      "table": "offres"
+    },
+    {
+      "value": "\"absences_consecutives\" >= 0",
+      "name": "offres_absences",
+      "entityType": "checks",
+      "table": "offres"
+    },
+    {
+      "value": "\"duree_min\" >= 0 AND \"nb_correspondances\" >= 0",
+      "name": "trajets_positifs",
+      "entityType": "checks",
+      "table": "trajets_cache"
+    }
+  ],
+  "renames": []
+}

@@ -1,0 +1,53 @@
+{
+  "name": "csp-veille",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Veille quotidienne des offres de Choisir le service public : base SQLite locale, résumés, temps de trajet",
+  "license": "MIT",
+  "author": "Pierre-Olivier Mauguet",
+  "bin": {
+    "csp": "src/cli.ts"
+  },
+  "type": "module",
+  "scripts": {
+    "preinstall": "node scripts/enforce-pnpm.cjs",
+    "prepare": "node scripts/install-hooks.cjs",
+    "csp": "node --use-system-ca --disable-warning=ExperimentalWarning src/cli.ts",
+    "test": "vp test",
+    "ready": "vp check && vp test",
+    "secrets:scan": "gitleaks git --redact --no-banner --config .gitleaks.toml && gitleaks git --pre-commit --redact --no-banner --config .gitleaks.toml",
+    "db:generer": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "css-select": "7.0.0",
+    "domhandler": "6.0.1",
+    "domutils": "4.0.2",
+    "drizzle-orm": "1.0.0-rc.4",
+    "parse5": "8.0.1",
+    "parse5-htmlparser2-tree-adapter": "8.0.1",
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.3",
+    "drizzle-kit": "1.0.0-rc.4",
+    "typescript": "7.0.2",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.1.0",
+    "vite-plus": "1.1.0"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "onFail": "error"
+    },
+    "runtime": {
+      "name": "node",
+      "version": "24.22.0",
+      "onFail": "download"
+    }
+  },
+  "engines": {
+    "node": ">=24.14"
+  },
+  "packageManager": "pnpm@12.11.2+sha512.25a51652a196785af5f28bda6dfe8dc582ebefa4ac1d180221ce1390231c5fb76637822ea4b6e4633ce74acdcb0a77f725af11bad38177fdeddaee818a955cb9"
+}

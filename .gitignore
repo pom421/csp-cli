@@ -1,0 +1,10 @@
+.env
+*.sqlite
+*.sqlite-*
+data/
+brut/
+diagnostics/
+node_modules/
+package-lock.json
+yarn.lock
+.claude/settings.local.json
