@@ -8,9 +8,10 @@ import { IndisponibleError, UserError } from '../erreurs.ts';
 import { messageOffre } from '../resume/consigne.ts';
 import {
   ErreurResume,
-  FournisseurAlbert,
-  FournisseurAnthropic,
+  fournisseurAlbert,
+  fournisseurAnthropic,
   fournisseurDepuisEnv,
+  ReponseNonJson,
   type FournisseurResume,
 } from '../resume/fournisseurs.ts';
 import { enregistrerResume, listerAResumer, resumerFile } from '../resume/resumer.ts';
@@ -81,72 +82,83 @@ describe('consigne', () => {
   });
 });
 
-describe('fournisseur Albert (compatible OpenAI)', () => {
+/** Faux serveur JSON : garde chaque requête (chemin, en-têtes, corps) et répond selon `repondre`. */
+async function fauxServeur(repondre: (corps: Record<string, unknown>, n: number) => [number, string]) {
+  const requetes: { url?: string; entetes: Record<string, unknown>; corps: Record<string, unknown> }[] = [];
+  const serveur = await demarrer((req, res) => {
+    let b = '';
+    req.on('data', (c) => (b += c));
+    req.on('end', () => {
+      const corps = b ? (JSON.parse(b) as Record<string, unknown>) : {};
+      requetes.push({ url: req.url, entetes: req.headers, corps });
+      const [statut, texte] = repondre(corps, requetes.length);
+      res.writeHead(statut, { 'content-type': 'application/json' }).end(texte);
+    });
+  });
+  return { serveur, requetes };
+}
+
+describe('fournisseur Albert (AI SDK, compatible OpenAI)', () => {
   const reponse = (contenu: string, finish = 'stop') =>
-    JSON.stringify({ choices: [{ message: { content: contenu }, finish_reason: finish }] });
-
-  it('demande une sortie json_schema stricte et renvoie le contenu', async () => {
-    const corps: Record<string, unknown>[] = [];
-    const serveur = await demarrer((req, res) => {
-      let b = '';
-      req.on('data', (c) => (b += c));
-      req.on('end', () => {
-        corps.push({ url: req.url, auth: req.headers.authorization, ...JSON.parse(b) });
-        res.writeHead(200, { 'content-type': 'application/json' }).end(reponse(JSON.stringify(RESUME)));
-      });
+    JSON.stringify({
+      id: 'c1',
+      object: 'chat.completion',
+      created: 0,
+      model: 'm',
+      choices: [{ index: 0, message: { role: 'assistant', content: contenu }, finish_reason: finish }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
     });
+
+  it('demande une sortie json_schema stricte et renvoie l’objet', async () => {
+    const { serveur, requetes } = await fauxServeur(() => [200, reponse(JSON.stringify(RESUME))]);
     process.env.CSP_ALBERT_URL = serveur.url;
-    const texte = await new FournisseurAlbert('albert-large', 'cle-test', 0).proposer('Offre');
+    const objet = await fournisseurAlbert('albert-large', 'cle-test').proposer('Offre');
     await serveur.fermer();
-    expect(JSON.parse(texte)).toEqual(RESUME);
-    expect(corps[0]).toMatchObject({
+    expect(objet).toEqual(RESUME);
+    expect(requetes[0]).toMatchObject({
       url: '/v1/chat/completions',
-      auth: 'Bearer cle-test',
-      model: 'albert-large',
-      response_format: { type: 'json_schema', json_schema: { name: 'resume_offre', strict: true } },
+      entetes: { authorization: 'Bearer cle-test' },
+      corps: { model: 'albert-large', temperature: 0.2, response_format: { type: 'json_schema' } },
     });
+    expect(JSON.stringify(requetes[0].corps.messages)).toContain('<offre>');
   });
 
-  it('se rabat sur json_object si le modèle refuse json_schema, et retente après 429', async () => {
-    const formats: string[] = [];
-    let n = 0;
-    const serveur = await demarrer((req, res) => {
-      let b = '';
-      req.on('data', (c) => (b += c));
-      req.on('end', () => {
-        formats.push((JSON.parse(b) as { response_format: { type: string } }).response_format.type);
-        n++;
-        if (n === 1) res.writeHead(400).end('{"detail":"response_format json_schema not supported"}');
-        else if (n === 2) res.writeHead(429).end();
-        else res.writeHead(200).end(reponse('{"ok":1}'));
-      });
-    });
+  it('se rabat sur json_object (schéma dans la consigne) si le modèle refuse json_schema, retente après 429', async () => {
+    const { serveur, requetes } = await fauxServeur((_c, n) =>
+      n === 1
+        ? [400, '{"detail":"response_format json_schema not supported"}']
+        : n === 2
+          ? [429, '{}']
+          : [200, reponse('{"ok":1}')],
+    );
     process.env.CSP_ALBERT_URL = serveur.url;
-    expect(await new FournisseurAlbert('m', 'k', 0).proposer('Offre')).toBe('{"ok":1}');
+    expect(await fournisseurAlbert('m', 'k', { tentatives: 1 }).proposer('Offre')).toEqual({ ok: 1 });
     await serveur.fermer();
-    expect(formats).toEqual(['json_schema', 'json_object', 'json_object']);
+    expect(requetes.map((r) => (r.corps.response_format as { type: string }).type)).toEqual([
+      'json_schema',
+      'json_object',
+      'json_object',
+    ]);
+    expect(JSON.stringify(requetes[1].corps.messages)).toContain('suit exactement ce schéma');
   });
 
-  it('classe les erreurs : clé refusée (1), indisponible (3), réponse tronquée (offre sautée)', async () => {
-    let statut = 401;
-    const serveur = await demarrer((req, res) => {
-      req.resume();
-      req.on('end', () =>
-        statut === 200 ? res.writeHead(200).end(reponse('{', 'length')) : res.writeHead(statut).end(),
-      );
-    });
+  it('classe les erreurs : clé refusée (1), indisponible (3), tronquée ou non JSON (offre seule)', async () => {
+    let r: [number, string] = [401, '{}'];
+    const { serveur } = await fauxServeur(() => r);
     process.env.CSP_ALBERT_URL = serveur.url;
-    const f = new FournisseurAlbert('m', 'k', 0);
+    const f = fournisseurAlbert('m', 'k', { tentatives: 0 });
     await expect(f.proposer('x')).rejects.toBeInstanceOf(UserError);
-    statut = 503;
+    r = [503, '{}'];
     await expect(f.proposer('x')).rejects.toBeInstanceOf(IndisponibleError);
-    statut = 200;
-    await expect(f.proposer('x')).rejects.toBeInstanceOf(ErreurResume);
+    r = [200, reponse('{"resume":', 'length')];
+    await expect(f.proposer('x')).rejects.toThrow('tronquée');
+    r = [200, reponse('pas du JSON')];
+    await expect(f.proposer('x')).rejects.toBeInstanceOf(ReponseNonJson);
     await serveur.fermer();
   });
 
   it('vérifie le modèle et liste ceux de génération de texte', async () => {
-    const serveur = await demarrer((req, res) =>
+    const serveur = await demarrer((_req, res) =>
       res.writeHead(200).end(
         JSON.stringify({
           data: [
@@ -157,16 +169,19 @@ describe('fournisseur Albert (compatible OpenAI)', () => {
       ),
     );
     process.env.CSP_ALBERT_URL = serveur.url;
-    expect(await new FournisseurAlbert('albert-large', 'k').verifier()).toBe('Albert, albert-large');
-    await expect(new FournisseurAlbert('inconnu', 'k').verifier()).rejects.toThrow(
-      'génération de texte : albert-large',
-    );
+    expect(await fournisseurAlbert('albert-large', 'k').verifier()).toBe('Albert, albert-large');
+    await expect(fournisseurAlbert('inconnu', 'k').verifier()).rejects.toThrow('génération de texte : albert-large');
     await serveur.fermer();
+  });
+
+  it('refuse toute origine hors liste blanche, même configurée', async () => {
+    process.env.CSP_ALBERT_URL = 'https://pirate.exemple.com';
+    expect(() => fournisseurAlbert('m', 'k')).toThrow('serveur local');
   });
 });
 
-describe('fournisseur Anthropic (SDK officiel)', () => {
-  const message = (contenu: object[], stop = 'end_turn', details: object | null = null) =>
+describe('fournisseur Anthropic (AI SDK)', () => {
+  const message = (contenu: object[], stop = 'end_turn') =>
     JSON.stringify({
       id: 'msg_1',
       type: 'message',
@@ -174,67 +189,44 @@ describe('fournisseur Anthropic (SDK officiel)', () => {
       model: 'claude-opus-5-5',
       content: contenu,
       stop_reason: stop,
-      stop_details: details,
+      stop_sequence: null,
       usage: { input_tokens: 10, output_tokens: 10 },
     });
 
-  async function fauxAnthropic(reponse: () => [number, string]) {
-    const requetes: { url?: string; entetes: Record<string, unknown>; corps: Record<string, unknown> }[] = [];
-    const serveur = await demarrer((req, res) => {
-      let b = '';
-      req.on('data', (c) => (b += c));
-      req.on('end', () => {
-        requetes.push({
-          url: req.url,
-          entetes: req.headers,
-          corps: b ? (JSON.parse(b) as Record<string, unknown>) : {},
-        });
-        const [statut, texte] = reponse();
-        res.writeHead(statut, { 'content-type': 'application/json' }).end(texte);
-      });
-    });
-    process.env.CSP_ANTHROPIC_URL = serveur.url;
-    return { serveur, requetes };
-  }
-
-  it('demande une sortie structurée, active le repli serveur, et renvoie le texte JSON', async () => {
-    const { serveur, requetes } = await fauxAnthropic(() => [
+  it('demande la sortie structurée native, active le repli serveur et le cache, renvoie l’objet', async () => {
+    const { serveur, requetes } = await fauxServeur(() => [
       200,
-      message([
-        { type: 'thinking', thinking: '', signature: 's' },
-        { type: 'text', text: JSON.stringify(RESUME) },
-      ]),
+      message([{ type: 'text', text: JSON.stringify(RESUME) }]),
     ]);
-    const texte = await new FournisseurAnthropic('claude-opus-5-5', 'sk-test').proposer('Offre');
+    process.env.CSP_ANTHROPIC_URL = serveur.url;
+    const objet = await fournisseurAnthropic('claude-opus-5-5', 'sk-test').proposer('Offre');
     await serveur.fermer();
-    expect(JSON.parse(texte)).toEqual(RESUME);
+    expect(objet).toEqual(RESUME);
     const r = requetes[0];
-    expect(r.url).toMatch(/^\/v1\/messages/);
+    expect(r.url).toBe('/v1/messages');
     expect(r.entetes['x-api-key']).toBe('sk-test');
     expect(String(r.entetes['anthropic-beta'])).toContain('server-side-fallback-2026-07-01');
-    expect(r.corps).toMatchObject({
-      model: 'claude-opus-5-5',
-      fallbacks: 'default',
-      output_config: { format: { type: 'json_schema', schema: SCHEMA_JSON } },
-    });
-    expect(JSON.stringify(r.corps.messages)).toContain('<offre>');
+    expect(r.corps).toMatchObject({ model: 'claude-opus-5-5', fallbacks: 'default' });
+    expect(JSON.stringify(r.corps)).toContain('"json_schema"');
+    expect(JSON.stringify(r.corps)).toContain('"ephemeral"');
+    expect(r.corps.temperature).toBeUndefined();
   });
 
-  it('n’active pas le repli pour un modèle qui ne le prend pas en charge', async () => {
-    const { serveur, requetes } = await fauxAnthropic(() => [200, message([{ type: 'text', text: '{}' }])]);
-    await new FournisseurAnthropic('claude-haiku-5-5', 'sk-test', 'low').proposer('Offre');
+  it('transmet l’effort, sans repli pour un modèle qui ne le prend pas en charge', async () => {
+    const { serveur, requetes } = await fauxServeur(() => [200, message([{ type: 'text', text: '{}' }])]);
+    process.env.CSP_ANTHROPIC_URL = serveur.url;
+    await fournisseurAnthropic('claude-haiku-5-5', 'sk-test', { effort: 'low' }).proposer('Offre');
     await serveur.fermer();
     expect(requetes[0].corps.fallbacks).toBeUndefined();
     expect(requetes[0].corps.output_config).toMatchObject({ effort: 'low' });
   });
 
-  it('un refus ou une réponse tronquée fait sauter l’offre ; une clé refusée arrête tout', async () => {
-    let r: [number, string] = [200, message([], 'refusal', { type: 'refusal', category: 'cyber', explanation: null })];
-    const { serveur } = await fauxAnthropic(() => r);
-    const f = new FournisseurAnthropic('claude-opus-5-5', 'sk-test');
-    await expect(f.proposer('x')).rejects.toThrow(/refus du modèle \(cyber\)/);
-    r = [200, message([{ type: 'text', text: '{' }], 'max_tokens')];
-    await expect(f.proposer('x')).rejects.toBeInstanceOf(ErreurResume);
+  it('un refus fait sauter l’offre ; une clé refusée arrête tout', async () => {
+    let r: [number, string] = [200, message([], 'refusal')];
+    const { serveur } = await fauxServeur(() => r);
+    process.env.CSP_ANTHROPIC_URL = serveur.url;
+    const f = fournisseurAnthropic('claude-opus-5-5', 'sk-test', { tentatives: 0 });
+    await expect(f.proposer('x')).rejects.toThrow('refus du modèle');
     r = [401, JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } })];
     await expect(f.proposer('x')).rejects.toBeInstanceOf(UserError);
     await serveur.fermer();
@@ -292,14 +284,16 @@ describe('file à résumer', () => {
       verifier: async () => 'faux',
       async proposer(texte, relance) {
         appels.push(relance?.erreurs);
-        // B-2 : première réponse avec une coordonnée, corrigée à la relance ; A-1 entourée d'un bloc ```json.
-        if (texte.includes('B-2') && !relance) return JSON.stringify({ ...RESUME, resume: 'Contact : a.b@exemple.fr' });
-        return texte.includes('A-1') ? '```json\n' + JSON.stringify(RESUME) + '\n```' : JSON.stringify(RESUME);
+        // B-2 : première réponse avec une coordonnée, corrigée à la relance ; A-1 : d'abord une réponse non JSON.
+        if (texte.includes('B-2') && !relance) return { ...RESUME, resume: 'Contact : a.b@exemple.fr' };
+        if (texte.includes('A-1') && !relance) throw new ReponseNonJson('la réponse n’est pas un objet JSON valide');
+        return RESUME;
       },
     };
     const b = await resumerFile(depot, f, { date: '2026-10-20', dossierBrut: brut });
     expect(b).toMatchObject({ resumees: ['A-1', 'B-2'], echecs: [], restantes: 0 });
-    expect(appels[2]?.join()).toContain('contient une coordonnée');
+    expect(appels[1]?.join()).toContain('pas un objet JSON');
+    expect(appels[3]?.join()).toContain('contient une coordonnée');
     expect(existsSync(join(brut, 'A-1.txt'))).toBe(false);
     expect(depot.obtenirOffre('B-2')).toMatchObject({
       resume: RESUME.resume,
@@ -318,7 +312,7 @@ describe('file à résumer', () => {
       async proposer(texte) {
         n++;
         if (texte.includes('A-1')) throw new ErreurResume('refus du modèle');
-        return JSON.stringify(RESUME);
+        return RESUME;
       },
     };
     const b = await resumerFile(depot, f, { date: '2026-10-20', dossierBrut: brut });

@@ -29,7 +29,7 @@ chmod 600 ~/.config/csp-veille/*
 
 - `recherches.yaml` : recherches lancées chaque jour (mots-clés, localisation, catégories, versants…).
 - `.env` : adresse de départ des trajets (`CSP_ORIGINE_TRAJET`, donnée personnelle), heure de départ, et fournisseur des
-  résumés : `CSP_LLM_FOURNISSEUR=anthropic` (Claude, `claude-opus-5-5` par défaut) ou `albert` (API Albert d'Etalab,
+  résumés : `CSP_LLM_FOURNISSEUR=anthropic` (Claude, `claude-opus-5-5` par défaut, clé dans `CSP_LLM_CLE` ou `ANTHROPIC_API_KEY`) ou `albert` (API Albert d'Etalab,
   `CSP_LLM_MODELE` obligatoire), avec la clé dans `CSP_LLM_CLE`. Voir `.env.example`.
 
 ## Commandes

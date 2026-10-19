@@ -19,7 +19,9 @@
     "db:generer": "drizzle-kit generate"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.133.0",
+    "@ai-sdk/anthropic": "4.0.79",
+    "@ai-sdk/openai-compatible": "3.0.68",
+    "ai": "7.0.138",
     "css-select": "7.0.0",
     "domhandler": "6.0.1",
     "domutils": "4.0.2",

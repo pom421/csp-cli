@@ -69,30 +69,14 @@ export async function obtenir(
 }
 
 /**
- * POST JSON vers une origine de la liste blanche (API de résumés). Pas de redirection suivie, pas de délai de
- * politesse (service payant, débit géré par le fournisseur). Le corps de la réponse est renvoyé tel quel.
+ * `fetch` restreint à la liste blanche, sans redirection : passé aux bibliothèques qui font leurs propres appels
+ * (AI SDK), pour qu'aucune requête ne sorte vers une origine non prévue.
  */
-export async function envoyerJson(
-  brut: string | URL,
-  corps: unknown,
-  entetes: Record<string, string> = {},
-  timeoutMs = 120_000,
-): Promise<Reponse> {
-  const url = urlAutorisee(brut);
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: 'POST',
-      redirect: 'error',
-      headers: { 'user-agent': USER_AGENT, 'content-type': 'application/json', accept: 'application/json', ...entetes },
-      body: JSON.stringify(corps),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (e) {
-    throw new IndisponibleError(`${url.origin} injoignable : ${(e as Error).message}`);
-  }
-  return { url: url.href, statut: res.status, texte: await res.text() };
-}
+export const fetchListeBlanche: typeof fetch = (entree, init) => {
+  const url = entree instanceof Request ? entree.url : entree;
+  urlAutorisee(url);
+  return fetch(entree, { ...init, redirect: 'error' });
+};
 
 /**
  * Certificats du système (proxy d'entreprise qui inspecte le HTTPS), comme `--use-system-ca` :

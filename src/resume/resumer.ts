@@ -4,7 +4,7 @@ import { relative, resolve, isAbsolute } from 'node:path';
 import { chemins } from '../config.ts';
 import type { Depot } from '../db/depot.ts';
 import { UserError } from '../erreurs.ts';
-import { ErreurResume, type FournisseurResume } from './fournisseurs.ts';
+import { ErreurResume, ReponseNonJson, type FournisseurResume } from './fournisseurs.ts';
 import { validerResume, type Resume } from './schema.ts';
 
 export interface EnAttente {
@@ -67,58 +67,73 @@ export interface BilanResumes {
   restantes: number;
 }
 
-/** Extrait l'objet JSON d'une réponse (certains modèles l'entourent d'un bloc ```json malgré la consigne). */
-function analyserJson(texte: string): unknown {
-  const bloc = /```(?:json)?\s*([\s\S]*?)```/.exec(texte);
-  return JSON.parse((bloc ? bloc[1] : texte).trim());
+type Resultat = { id_offre: string; ok: true } | { id_offre: string; ok: false; raison: string };
+
+/** Demande un résumé au modèle ; une réponse invalide lui est renvoyée une fois, avec les erreurs de validation. */
+async function obtenirResume(fournisseur: FournisseurResume, texteBrut: string): Promise<Resume> {
+  let erreurs: string[] = [];
+  for (const essai of [0, 1]) {
+    let json: unknown;
+    try {
+      json = await fournisseur.proposer(texteBrut, essai ? { erreurs } : undefined);
+    } catch (e) {
+      if (!(e instanceof ReponseNonJson)) throw e;
+      erreurs = [e.message];
+      continue;
+    }
+    const v = validerResume(json);
+    if (v.ok) return v.resume;
+    erreurs = v.erreurs;
+  }
+  throw new ErreurResume(`réponse invalide après relance : ${erreurs.join(' ; ')}`);
 }
 
+/** Résume une offre de la file. Seul un échec propre à l'offre est rendu comme résultat ; le reste est levé. */
+async function resumerUne(
+  depot: Depot,
+  fournisseur: FournisseurResume,
+  attente: { id_offre: string; chemin_brut: string },
+  options: { date: string; dossierBrut: string },
+): Promise<Resultat> {
+  const { id_offre } = attente;
+  if (!existsSync(attente.chemin_brut)) {
+    return { id_offre, ok: false, raison: 'texte brut introuvable : relancer csp collecte' };
+  }
+  try {
+    const resume = await obtenirResume(fournisseur, readFileSync(attente.chemin_brut, 'utf8'));
+    enregistrerResume(depot, id_offre, resume, options);
+    return { id_offre, ok: true };
+  } catch (e) {
+    if (!(e instanceof ErreurResume)) throw e;
+    return { id_offre, ok: false, raison: e.message };
+  }
+}
+
+/** Réducteur : chaque résultat va dans les résumées ou dans les échecs. */
+const cumuler = (bilan: BilanResumes, r: Resultat): BilanResumes =>
+  r.ok
+    ? { ...bilan, resumees: [...bilan.resumees, r.id_offre] }
+    : { ...bilan, echecs: [...bilan.echecs, { id_offre: r.id_offre, raison: r.raison }] };
+
 /**
- * Résume la file par le fournisseur configuré. Une réponse invalide est renvoyée une fois au modèle avec les erreurs ;
- * un échec sur une offre n'arrête pas les autres. Une erreur de configuration ou d'indisponibilité arrête tout.
+ * Résume la file par le fournisseur configuré, une offre après l'autre. Un échec sur une offre n'arrête pas les
+ * autres ; une erreur de configuration ou d'indisponibilité arrête tout.
  */
 export async function resumerFile(
   depot: Depot,
   fournisseur: FournisseurResume,
   { date, limite = Infinity, dossierBrut = chemins().brut }: { date: string; limite?: number; dossierBrut?: string },
 ): Promise<BilanResumes> {
-  const file = depot.aResumer();
-  const bilan: BilanResumes = {
+  const resultats: Resultat[] = [];
+  // Séquentiel volontairement : débit maîtrisé côté fournisseur, et un arrêt laisse les offres déjà traitées en base.
+  for (const attente of depot.aResumer().slice(0, limite)) {
+    resultats.push(await resumerUne(depot, fournisseur, attente, { date, dossierBrut }));
+  }
+  const vide: BilanResumes = {
     fournisseur: `${fournisseur.nom} (${fournisseur.modele})`,
     resumees: [],
     echecs: [],
     restantes: 0,
   };
-  for (const attente of file.slice(0, limite)) {
-    if (!existsSync(attente.chemin_brut)) {
-      bilan.echecs.push({ id_offre: attente.id_offre, raison: 'texte brut introuvable : relancer csp collecte' });
-      continue;
-    }
-    const texteBrut = readFileSync(attente.chemin_brut, 'utf8');
-    try {
-      let erreurs: string[] = [];
-      let resume: Resume | undefined;
-      for (let essai = 0; essai < 2 && !resume; essai++) {
-        const reponse = await fournisseur.proposer(texteBrut, essai ? { erreurs } : undefined);
-        let json: unknown;
-        try {
-          json = analyserJson(reponse);
-        } catch {
-          erreurs = ['la réponse n’est pas un objet JSON valide'];
-          continue;
-        }
-        const v = validerResume(json);
-        if (v.ok) resume = v.resume;
-        else erreurs = v.erreurs;
-      }
-      if (!resume) throw new ErreurResume(`réponse invalide après relance : ${erreurs.join(' ; ')}`);
-      enregistrerResume(depot, attente.id_offre, resume, { date, dossierBrut });
-      bilan.resumees.push(attente.id_offre);
-    } catch (e) {
-      if (!(e instanceof ErreurResume)) throw e;
-      bilan.echecs.push({ id_offre: attente.id_offre, raison: e.message });
-    }
-  }
-  bilan.restantes = depot.aResumer().length;
-  return bilan;
+  return { ...resultats.reduce(cumuler, vide), restantes: depot.aResumer().length };
 }

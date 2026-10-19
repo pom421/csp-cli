@@ -23,7 +23,7 @@ Voir aussi : [CONFORMITE.md](CONFORMITE.md) (cadre juridique, règles de collect
 - `fetch` natif + **parse5** (analyse HTML conforme au navigateur) et **css-select**, `yaml`, `zod`
   - Pas de Playwright : le site rend la liste et le détail côté serveur, sans anti-bot (voir [docs/reconnaissance.md](docs/reconnaissance.md)). Accès aux pages derrière une interface `SourcePages` : un navigateur reste rebranchable si le site passe au rendu JavaScript
 - SQLite : **`node:sqlite`** (intégré à Node → 0 dépendance native, 0 script d'installation)
-- Résumés : interface `FournisseurResume`, deux implémentations — **Claude** par le SDK officiel `@anthropic-ai/sdk` (sortie structurée `output_config.format`, `claude-opus-5-5` par défaut, repli serveur `fallbacks: "default"` en cas de refus) et **Albert** (Etalab, API compatible OpenAI, `response_format` json_schema, repli `json_object`) en `fetch`
+- Résumés : **AI SDK** de Vercel (`ai`, `generateText` + `Output.object`), un `LanguageModel` par fournisseur — **Claude** (`@ai-sdk/anthropic` : sortie structurée native `structuredOutputMode: 'outputFormat'`, `claude-opus-5-5` par défaut, repli serveur `fallbacks: "default"`) et **Albert** (Etalab, `@ai-sdk/openai-compatible` : `response_format` json_schema, repli `json_object`). Les appels passent par un `fetch` restreint à la liste blanche
 - **Drizzle ORM** (`drizzle-orm/node-sqlite`, 1.0 RC : seule version avec le pilote `node:sqlite`) : schéma TypeScript unique, requêtes typées et paramétrées ; **drizzle-kit** (dev) génère les migrations SQL
 - `fetch` natif pour IGN / Transitous
 - Modèle de référence : [fab-dtnum/docs-cli](https://github.com/fab-dtnum/docs-cli) (sécurité, outillage, structure)
@@ -150,7 +150,7 @@ Tâche planifiée Claude (6h, Mac allumé)
   - `allowBuilds: {}` (aucun script d'installation des dépendances)
   - `savePrefix: ''`, `pmOnFail: error`, `engineStrict: true`
 - `scripts/enforce-pnpm.cjs` (preinstall : bloque npm/yarn)
-- Dépendances minimales : `drizzle-orm`, `yaml`, `zod`, `parse5` + `css-select`, `@anthropic-ai/sdk` (dev : `drizzle-kit`, dont le script d'installation d'esbuild est refusé explicitement)
+- Dépendances minimales : `drizzle-orm`, `yaml`, `zod`, `parse5` + `css-select`, `ai` + `@ai-sdk/anthropic` + `@ai-sdk/openai-compatible` (dev : `drizzle-kit`, dont le script d'installation d'esbuild est refusé explicitement)
 
 ### Secrets et fichiers locaux
 
