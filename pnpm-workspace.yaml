@@ -11,7 +11,10 @@ engineStrict: true
 minimumReleaseAge: 10080
 
 # Scripts d'installation (preinstall/postinstall…) des dépendances : aucun autorisé.
-allowBuilds: {}
+# esbuild (via drizzle-kit, outil de développement) : son postinstall ne fait que vérifier le binaire,
+# fourni par un paquet optionnel propre à la plateforme ; refus explicite.
+allowBuilds:
+  esbuild: false
 
 # Versions exactes dans package.json (pas de ^) : une mise à jour est toujours explicite.
 savePrefix: ''

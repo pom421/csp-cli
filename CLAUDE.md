@@ -45,5 +45,7 @@ Relevé du site : [docs/reconnaissance.md](docs/reconnaissance.md).
 - Colonnes, tables, commandes, identifiants en **français**.
 - `vp run ready` (= `vp check && vp test`) avant chaque livraison. Tests contre fixtures et faux serveur local, jamais le vrai site.
 - Dépendances : versions exactes, `pnpm add` uniquement (cooldown de 7 jours, aucun script d'installation).
-- SQL : requêtes paramétrées uniquement.
+- SQL : Drizzle uniquement (requêtes paramétrées) ; jamais de donnée interpolée dans un fragment `sql.raw`.
+- Schéma : modifier `src/db/schema.ts`, puis `pnpm db:generer --name <nom>` ; relire la migration générée dans `drizzle/`,
+  ne jamais modifier une migration déjà commitée.
 - Fichiers locaux en 0600, dossiers en 0700 (`src/securite/fichiers.ts`).

@@ -1,101 +1,55 @@
-// Accès à la base : requêtes paramétrées uniquement. Les seuls noms de colonnes interpolés dans le SQL
-// viennent des listes constantes ci-dessous, jamais d'une donnée.
+// Accès à la base via Drizzle (requêtes paramétrées par construction) sur node:sqlite.
 import { chmodSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
+import { and, asc, desc, eq, gte, lt, ne, sql } from 'drizzle-orm';
+import { drizzle, type NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import { migrate } from 'drizzle-orm/node-sqlite/migrator';
 import { UserError } from '../erreurs.ts';
 import { dossierPrive, MODE_FICHIER } from '../securite/fichiers.ts';
-import { migrer } from './migrations.ts';
-import type { ChampsCode, ChampsResume, Execution, Offre, PrecisionGeo } from './schema.ts';
+import {
+  a_resumer,
+  executions,
+  geocodage_cache,
+  offres,
+  recherches_offres,
+  trajets_cache,
+  type ChampsCode,
+  type ChampsResume,
+  type Execution,
+  type Geocodage,
+  type Offre,
+  type Trajet,
+} from './schema.ts';
 
-const COLONNES_CODE = [
-  'id_offre',
-  'url',
-  'titre',
-  'employeur',
-  'versant',
-  'categorie',
-  'type_contrat',
-  'temps_travail',
-  'metier',
-  'domaine',
-  'adresse',
-  'commune',
-  'code_postal',
-  'departement',
-  'latitude',
-  'longitude',
-  'precision_geo',
-  'date_publication',
-  'date_limite_candidature',
-  'empreinte_carte',
-  'empreinte_detail',
-  'empreinte_identite',
-] as const satisfies readonly (keyof ChampsCode)[];
-
-/**
- * Colonnes que le code ne remplace pas par `null` : type de contrat et temps de travail peuvent venir du résumé
- * (PLAN §10 « code, sinon LLM ») ; l'empreinte du détail reste celle du dernier téléchargement réussi.
- */
-const CONSERVEES_SI_NULL = new Set<string>(['type_contrat', 'temps_travail', 'empreinte_detail']);
-
-const COLONNES_RESUME = [
-  'resume',
-  'points_attention',
-  'competences',
-  'duree_contrat_mois',
-  'teletravail_jours_semaine',
-  'remuneration_min',
-  'remuneration_max',
-  'remuneration_texte',
-  'management',
-  'taille_equipe',
-  'experience_annees_min',
-  'niveau_diplome',
-  'date_prise_poste',
-] as const satisfies readonly (keyof ChampsResume)[];
+export const DOSSIER_MIGRATIONS = new URL('../../drizzle', import.meta.url).pathname;
 
 export type Evolution = 'nouvelle' | 'modifiee' | 'inchangee';
 
-/** Valeur JS → valeur SQLite : booléen en 0/1, tableau en JSON, undefined en NULL. */
-function sql(v: unknown): SQLInputValue {
-  if (v === undefined || v === null) return null;
-  if (typeof v === 'boolean') return v ? 1 : 0;
-  if (Array.isArray(v)) return JSON.stringify(v);
-  if (typeof v === 'string' || typeof v === 'number') return v;
-  throw new TypeError(`Valeur non enregistrable : ${typeof v}`);
-}
-
-type Ligne = Record<string, SQLInputValue>;
-
-function versOffre(l: Ligne): Offre {
-  const json = (v: SQLInputValue) => (typeof v === 'string' ? (JSON.parse(v) as string[]) : null);
-  return {
-    ...(l as unknown as Offre),
-    management: l.management === null ? null : l.management === 1,
-    competences: json(l.competences),
-    points_attention: json(l.points_attention),
-  };
-}
+/** Valeur de la ligne proposée à l'insertion (`excluded.colonne`) dans un ON CONFLICT DO UPDATE. */
+const proposee = (colonne: string) => sql.raw(`excluded.${colonne}`);
 
 export class Depot {
-  readonly db: DatabaseSync;
+  readonly client: DatabaseSync;
+  readonly db: NodeSQLiteDatabase;
 
   constructor(chemin: string) {
-    if (chemin !== ':memory:') dossierPrive(dirname(chemin));
-    this.db = new DatabaseSync(chemin);
-    if (chemin !== ':memory:') {
+    const memoire = chemin === ':memory:';
+    if (!memoire) dossierPrive(dirname(chemin));
+    this.client = new DatabaseSync(chemin);
+    if (!memoire) {
       chmodSync(chemin, MODE_FICHIER);
-      this.db.exec('PRAGMA journal_mode = WAL');
+      this.client.exec('PRAGMA journal_mode = WAL');
     }
-    this.db.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
-    migrer(this.db);
+    this.client.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+    this.db = drizzle({ client: this.client });
+    migrate(this.db, { migrationsFolder: DOSSIER_MIGRATIONS });
     // Fichiers annexes du mode WAL : mêmes droits que la base (le umask du CLI les protège déjà).
     for (const annexe of [`${chemin}-wal`, `${chemin}-shm`]) if (existsSync(annexe)) chmodSync(annexe, MODE_FICHIER);
   }
 
   fermer(): void {
-    this.db.close();
+    this.client.close();
   }
 
   private profondeur = 0;
@@ -106,13 +60,13 @@ export class Depot {
    */
   transaction<T>(fn: () => T): T {
     const nom = `sp${this.profondeur++}`;
-    this.db.exec(`SAVEPOINT ${nom}`);
+    this.client.exec(`SAVEPOINT ${nom}`);
     try {
       const r = fn();
-      this.db.exec(`RELEASE ${nom}`);
+      this.client.exec(`RELEASE ${nom}`);
       return r;
     } catch (e) {
-      this.db.exec(`ROLLBACK TO ${nom}; RELEASE ${nom}`);
+      this.client.exec(`ROLLBACK TO ${nom}; RELEASE ${nom}`);
       throw e;
     } finally {
       this.profondeur--;
@@ -122,15 +76,16 @@ export class Depot {
   // ── Offres ────────────────────────────────────────────────────────────────
 
   obtenirOffre(id: string): Offre | undefined {
-    const l = this.db.prepare('SELECT * FROM offres WHERE id_offre = ?').get(id) as Ligne | undefined;
-    return l && versOffre(l);
+    return this.db.select().from(offres).where(eq(offres.id_offre, id)).get();
   }
 
-  offres(statut?: Offre['statut']): Offre[] {
-    const lignes = statut
-      ? this.db.prepare('SELECT * FROM offres WHERE statut = ? ORDER BY id_offre').all(statut)
-      : this.db.prepare('SELECT * FROM offres ORDER BY id_offre').all();
-    return (lignes as Ligne[]).map(versOffre);
+  listerOffres(statut?: Offre['statut']): Offre[] {
+    return this.db
+      .select()
+      .from(offres)
+      .where(statut ? eq(offres.statut, statut) : undefined)
+      .orderBy(asc(offres.id_offre))
+      .all();
   }
 
   /**
@@ -139,227 +94,208 @@ export class Depot {
    */
   enregistrerOffre(champs: ChampsCode, date: string): Evolution {
     return this.transaction(() => {
-      const avant = this.db.prepare('SELECT empreinte_detail FROM offres WHERE id_offre = ?').get(champs.id_offre) as
-        | { empreinte_detail: string | null }
-        | undefined;
-      const modifiee =
-        avant !== undefined && champs.empreinte_detail !== null && champs.empreinte_detail !== avant.empreinte_detail;
-      const valeurs: Ligne = Object.fromEntries(COLONNES_CODE.map((c) => [c, sql(champs[c])]));
-      const misesAJour = COLONNES_CODE.filter((c) => c !== 'id_offre').map((c) =>
-        CONSERVEES_SI_NULL.has(c) ? `${c} = coalesce(excluded.${c}, offres.${c})` : `${c} = excluded.${c}`,
-      );
+      const avant = this.db
+        .select({ empreinte_detail: offres.empreinte_detail })
+        .from(offres)
+        .where(eq(offres.id_offre, champs.id_offre))
+        .get();
+      const evolution: Evolution =
+        avant === undefined
+          ? 'nouvelle'
+          : champs.empreinte_detail !== null && champs.empreinte_detail !== avant.empreinte_detail
+            ? 'modifiee'
+            : 'inchangee';
+      const dateMaj = evolution === 'inchangee' || champs.empreinte_detail === null ? null : date;
+      const { id_offre: _id, ...remplaces } = champs;
       this.db
-        .prepare(
-          `INSERT INTO offres (${COLONNES_CODE.join(', ')}, date_premiere_vue, date_derniere_vue, date_maj_detail)
-           VALUES (${COLONNES_CODE.map((c) => `:${c}`).join(', ')}, :date, :date, :date_maj)
-           ON CONFLICT (id_offre) DO UPDATE SET
-             ${misesAJour.join(',\n             ')},
-             date_derniere_vue = excluded.date_derniere_vue,
-             date_maj_detail = coalesce(:date_maj, offres.date_maj_detail),
-             absences_consecutives = 0,
-             statut = CASE WHEN offres.statut = 'expiree' THEN 'active' ELSE offres.statut END`,
-        )
-        .run({
-          ...valeurs,
-          date,
-          date_maj: avant === undefined || modifiee ? (champs.empreinte_detail === null ? null : date) : null,
-        });
-      return avant === undefined ? 'nouvelle' : modifiee ? 'modifiee' : 'inchangee';
+        .insert(offres)
+        .values({ ...champs, date_premiere_vue: date, date_derniere_vue: date, date_maj_detail: dateMaj })
+        .onConflictDoUpdate({
+          target: offres.id_offre,
+          set: {
+            ...remplaces,
+            // Peuvent venir du résumé (PLAN §10 « code, sinon LLM ») ; l'empreinte reste celle du dernier détail lu.
+            type_contrat: sql`coalesce(${proposee('type_contrat')}, ${offres.type_contrat})`,
+            temps_travail: sql`coalesce(${proposee('temps_travail')}, ${offres.temps_travail})`,
+            empreinte_detail: sql`coalesce(${proposee('empreinte_detail')}, ${offres.empreinte_detail})`,
+            date_derniere_vue: date,
+            date_maj_detail: sql`coalesce(${dateMaj}, ${offres.date_maj_detail})`,
+            absences_consecutives: 0,
+            statut: sql`CASE WHEN ${offres.statut} = 'expiree' THEN 'active' ELSE ${offres.statut} END`,
+          },
+        })
+        .run();
+      return evolution;
     });
   }
 
-  /** +1 absence pour les offres actives ou clôturées non vues lors d'une collecte complète. */
+  /** +1 absence pour les offres non expirées absentes d'une collecte complète. */
   noterAbsences(ids: readonly string[]): void {
-    const stmt = this.db.prepare(
-      "UPDATE offres SET absences_consecutives = absences_consecutives + 1 WHERE id_offre = ? AND statut != 'expiree'",
-    );
-    this.transaction(() => ids.forEach((id) => stmt.run(id)));
+    this.transaction(() => {
+      for (const id of ids) {
+        this.db
+          .update(offres)
+          .set({ absences_consecutives: sql`${offres.absences_consecutives} + 1` })
+          .where(and(eq(offres.id_offre, id), ne(offres.statut, 'expiree')))
+          .run();
+      }
+    });
   }
 
   /** Passe en `expiree` les offres absentes `seuil` fois de suite ; renvoie leurs identifiants. */
   expirer(seuil = 3): string[] {
-    const lignes = this.db
-      .prepare(
-        "UPDATE offres SET statut = 'expiree' WHERE statut != 'expiree' AND absences_consecutives >= ? RETURNING id_offre",
-      )
-      .all(seuil) as { id_offre: string }[];
-    return lignes.map((l) => l.id_offre).sort();
+    return this.db
+      .update(offres)
+      .set({ statut: 'expiree' })
+      .where(and(ne(offres.statut, 'expiree'), gte(offres.absences_consecutives, seuil)))
+      .returning({ id: offres.id_offre })
+      .all()
+      .map((l) => l.id)
+      .sort();
   }
 
   /** Offre active dont la date limite (ISO) est passée : `cloturee` ; renvoie leurs identifiants. */
   cloturer(aujourdhui: string): string[] {
-    const lignes = this.db
-      .prepare(
-        "UPDATE offres SET statut = 'cloturee' WHERE statut = 'active' AND date_limite_candidature < ? RETURNING id_offre",
-      )
-      .all(aujourdhui) as { id_offre: string }[];
-    return lignes.map((l) => l.id_offre).sort();
+    return this.db
+      .update(offres)
+      .set({ statut: 'cloturee' })
+      .where(and(eq(offres.statut, 'active'), lt(offres.date_limite_candidature, aujourdhui)))
+      .returning({ id: offres.id_offre })
+      .all()
+      .map((l) => l.id)
+      .sort();
   }
 
   /** Offre antérieure de même identité (titre + employeur + commune) sous un autre identifiant. */
   trouverRepublication(empreinteIdentite: string, idOffre: string): string | undefined {
-    const l = this.db
-      .prepare(
-        `SELECT id_offre FROM offres WHERE empreinte_identite = ? AND id_offre != ?
-         ORDER BY date_premiere_vue DESC, id_offre DESC LIMIT 1`,
-      )
-      .get(empreinteIdentite, idOffre) as { id_offre: string } | undefined;
-    return l?.id_offre;
+    return this.db
+      .select({ id: offres.id_offre })
+      .from(offres)
+      .where(and(eq(offres.empreinte_identite, empreinteIdentite), ne(offres.id_offre, idOffre)))
+      .orderBy(desc(offres.date_premiere_vue), desc(offres.id_offre))
+      .limit(1)
+      .get()?.id;
   }
 
   marquerRepublication(idOffre: string, idOrigine: string): void {
-    this.db.prepare('UPDATE offres SET republication_de = ? WHERE id_offre = ?').run(idOrigine, idOffre);
+    this.db.update(offres).set({ republication_de: idOrigine }).where(eq(offres.id_offre, idOffre)).run();
   }
 
   lierRecherche(nomRecherche: string, idOffre: string): void {
     this.db
-      .prepare('INSERT INTO recherches_offres (nom_recherche, id_offre) VALUES (?, ?) ON CONFLICT DO NOTHING')
-      .run(nomRecherche, idOffre);
+      .insert(recherches_offres)
+      .values({ nom_recherche: nomRecherche, id_offre: idOffre })
+      .onConflictDoNothing()
+      .run();
   }
 
   recherchesDe(idOffre: string): string[] {
-    const lignes = this.db
-      .prepare('SELECT nom_recherche FROM recherches_offres WHERE id_offre = ? ORDER BY nom_recherche')
-      .all(idOffre) as { nom_recherche: string }[];
-    return lignes.map((l) => l.nom_recherche);
+    return this.db
+      .select({ nom: recherches_offres.nom_recherche })
+      .from(recherches_offres)
+      .where(eq(recherches_offres.id_offre, idOffre))
+      .orderBy(asc(recherches_offres.nom_recherche))
+      .all()
+      .map((l) => l.nom);
   }
 
   // ── Résumés ───────────────────────────────────────────────────────────────
 
   ajouterAResumer(idOffre: string, raison: 'nouvelle' | 'modifiee', cheminBrut: string, date: string): void {
     this.db
-      .prepare(
-        `INSERT INTO a_resumer (id_offre, raison, chemin_brut, date) VALUES (?, ?, ?, ?)
-         ON CONFLICT (id_offre) DO UPDATE SET chemin_brut = excluded.chemin_brut, date = excluded.date,
-           raison = CASE WHEN a_resumer.raison = 'nouvelle' THEN 'nouvelle' ELSE excluded.raison END`,
-      )
-      .run(idOffre, raison, cheminBrut, date);
+      .insert(a_resumer)
+      .values({ id_offre: idOffre, raison, chemin_brut: cheminBrut, date })
+      .onConflictDoUpdate({
+        target: a_resumer.id_offre,
+        set: {
+          chemin_brut: cheminBrut,
+          date,
+          // Une offre nouvelle jamais résumée le reste, même modifiée entre-temps.
+          raison: sql`CASE WHEN ${a_resumer.raison} = 'nouvelle' THEN 'nouvelle' ELSE ${raison} END`,
+        },
+      })
+      .run();
   }
 
-  aResumer(): { id_offre: string; raison: 'nouvelle' | 'modifiee'; chemin_brut: string; date: string }[] {
-    return this.db.prepare('SELECT * FROM a_resumer ORDER BY date, id_offre').all() as ReturnType<Depot['aResumer']>;
+  aResumer() {
+    return this.db.select().from(a_resumer).orderBy(asc(a_resumer.date), asc(a_resumer.id_offre)).all();
   }
 
   /** Écrit les champs du résumé et retire l'offre de la file, en une transaction. */
   enregistrerResume(idOffre: string, r: ChampsResume, date: string): void {
     this.transaction(() => {
-      const valeurs: Ligne = Object.fromEntries(COLONNES_RESUME.map((c) => [c, sql(r[c])]));
+      const { type_contrat, temps_travail, ...champs } = r;
       const res = this.db
-        .prepare(
-          `UPDATE offres SET ${COLONNES_RESUME.map((c) => `${c} = :${c}`).join(', ')},
-             type_contrat = coalesce(type_contrat, :type_contrat),
-             temps_travail = coalesce(temps_travail, :temps_travail),
-             date_resume = :date
-           WHERE id_offre = :id_offre`,
-        )
-        .run({
-          ...valeurs,
-          type_contrat: sql(r.type_contrat),
-          temps_travail: sql(r.temps_travail),
-          date,
-          id_offre: idOffre,
-        });
+        .update(offres)
+        .set({
+          ...champs,
+          type_contrat: sql`coalesce(${offres.type_contrat}, ${type_contrat ?? null})`,
+          temps_travail: sql`coalesce(${offres.temps_travail}, ${temps_travail ?? null})`,
+          date_resume: date,
+        })
+        .where(eq(offres.id_offre, idOffre))
+        .run();
       if (res.changes === 0) throw new UserError(`Offre inconnue : ${idOffre}`);
-      this.db.prepare('DELETE FROM a_resumer WHERE id_offre = ?').run(idOffre);
+      this.db.delete(a_resumer).where(eq(a_resumer.id_offre, idOffre)).run();
     });
   }
 
   // ── Caches géographiques ──────────────────────────────────────────────────
 
-  lireGeocodage(cleLieu: string) {
-    return this.db.prepare('SELECT * FROM geocodage_cache WHERE cle_lieu = ?').get(cleLieu) as
-      | {
-          cle_lieu: string;
-          latitude: number;
-          longitude: number;
-          precision_geo: PrecisionGeo;
-          source: string;
-          date: string;
-        }
-      | undefined;
+  lireGeocodage(cleLieu: string): Geocodage | undefined {
+    return this.db.select().from(geocodage_cache).where(eq(geocodage_cache.cle_lieu, cleLieu)).get();
   }
 
-  ecrireGeocodage(g: {
-    cle_lieu: string;
-    latitude: number;
-    longitude: number;
-    precision_geo: PrecisionGeo;
-    source: string;
-    date: string;
-  }): void {
+  ecrireGeocodage(g: Geocodage): void {
+    const { cle_lieu: _cle, ...reste } = g;
     this.db
-      .prepare(
-        `INSERT INTO geocodage_cache (cle_lieu, latitude, longitude, precision_geo, source, date)
-         VALUES (:cle_lieu, :latitude, :longitude, :precision_geo, :source, :date)
-         ON CONFLICT (cle_lieu) DO UPDATE SET latitude = excluded.latitude, longitude = excluded.longitude,
-           precision_geo = excluded.precision_geo, source = excluded.source, date = excluded.date`,
-      )
-      .run(g);
+      .insert(geocodage_cache)
+      .values(g)
+      .onConflictDoUpdate({ target: geocodage_cache.cle_lieu, set: reste })
+      .run();
   }
 
-  lireTrajet(cleOrigine: string, cleDestination: string, heureRef: string) {
+  lireTrajet(cleOrigine: string, cleDestination: string, heureRef: string): Trajet | undefined {
     return this.db
-      .prepare('SELECT * FROM trajets_cache WHERE cle_origine = ? AND cle_destination = ? AND heure_ref = ?')
-      .get(cleOrigine, cleDestination, heureRef) as
-      | { duree_min: number | null; nb_correspondances: number | null; date: string }
-      | undefined;
+      .select()
+      .from(trajets_cache)
+      .where(
+        and(
+          eq(trajets_cache.cle_origine, cleOrigine),
+          eq(trajets_cache.cle_destination, cleDestination),
+          eq(trajets_cache.heure_ref, heureRef),
+        ),
+      )
+      .get();
   }
 
-  /** `duree_min` null = aucun itinéraire trouvé (mis en cache aussi, pour ne pas redemander chaque jour). */
-  ecrireTrajet(t: {
-    cle_origine: string;
-    cle_destination: string;
-    heure_ref: string;
-    duree_min: number | null;
-    nb_correspondances: number | null;
-    date: string;
-  }): void {
+  ecrireTrajet(t: Trajet): void {
     this.db
-      .prepare(
-        `INSERT INTO trajets_cache (cle_origine, cle_destination, heure_ref, duree_min, nb_correspondances, date)
-         VALUES (:cle_origine, :cle_destination, :heure_ref, :duree_min, :nb_correspondances, :date)
-         ON CONFLICT (cle_origine, cle_destination, heure_ref) DO UPDATE SET duree_min = excluded.duree_min,
-           nb_correspondances = excluded.nb_correspondances, date = excluded.date`,
-      )
-      .run(t);
+      .insert(trajets_cache)
+      .values(t)
+      .onConflictDoUpdate({
+        target: [trajets_cache.cle_origine, trajets_cache.cle_destination, trajets_cache.heure_ref],
+        set: { duree_min: t.duree_min, nb_correspondances: t.nb_correspondances, date: t.date },
+      })
+      .run();
   }
 
   /** Vide le cache de trajets (changement d'adresse de départ : `csp trajets --recalculer`). */
   viderTrajets(): number {
-    return Number(this.db.prepare('DELETE FROM trajets_cache').run().changes);
+    return Number(this.db.delete(trajets_cache).run().changes);
   }
 
   // ── Exécutions ────────────────────────────────────────────────────────────
 
   commencerExecution(debut: string): number {
-    return Number(this.db.prepare('INSERT INTO executions (debut) VALUES (?)').run(debut).lastInsertRowid);
+    return this.db.insert(executions).values({ debut }).returning({ id: executions.id }).get()!.id;
   }
 
-  terminerExecution(
-    id: number,
-    fin: Pick<Execution, 'fin' | 'statut' | 'code_sortie'> &
-      Partial<Pick<Execution, 'nb_cartes' | 'nb_nouvelles' | 'nb_modifiees' | 'nb_expirees' | 'message'>>,
-  ): void {
-    this.db
-      .prepare(
-        `UPDATE executions SET fin = :fin, statut = :statut, code_sortie = :code_sortie, nb_cartes = :nb_cartes,
-           nb_nouvelles = :nb_nouvelles, nb_modifiees = :nb_modifiees, nb_expirees = :nb_expirees, message = :message
-         WHERE id = :id`,
-      )
-      .run({
-        id,
-        fin: fin.fin,
-        statut: fin.statut,
-        code_sortie: fin.code_sortie,
-        nb_cartes: sql(fin.nb_cartes),
-        nb_nouvelles: sql(fin.nb_nouvelles),
-        nb_modifiees: sql(fin.nb_modifiees),
-        nb_expirees: sql(fin.nb_expirees),
-        message: sql(fin.message),
-      });
+  terminerExecution(id: number, fin: Partial<Omit<Execution, 'id' | 'debut'>>): void {
+    this.db.update(executions).set(fin).where(eq(executions.id, id)).run();
   }
 
   derniereExecution(): Execution | undefined {
-    return this.db.prepare('SELECT * FROM executions ORDER BY id DESC LIMIT 1').get() as Execution | undefined;
+    return this.db.select().from(executions).orderBy(desc(executions.id)).limit(1).get();
   }
 }

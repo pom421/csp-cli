@@ -1,182 +1,227 @@
-// Schéma de la base (PLAN §10). Chaque migration est appliquée une seule fois, dans l'ordre (PRAGMA user_version).
-// Ne jamais modifier une migration publiée : en ajouter une nouvelle.
+// Schéma de la base (PLAN §10), source unique : `pnpm db:generer` en tire les migrations SQL (dossier drizzle/).
+// Les noms de colonnes sont les clés des objets (snake_case français).
+import { sql } from 'drizzle-orm';
+import {
+  check,
+  index,
+  integer,
+  primaryKey,
+  real,
+  sqliteTable,
+  text,
+  type AnySQLiteColumn,
+} from 'drizzle-orm/sqlite-core';
 
-export const MIGRATIONS: readonly string[] = [
-  // 1 — schéma initial
-  `
-  CREATE TABLE offres (
-    id_offre                  TEXT PRIMARY KEY,
-    url                       TEXT NOT NULL,
-    titre                     TEXT NOT NULL,
-    employeur                 TEXT,
-    versant                   TEXT CHECK (versant IN ('FPE', 'FPT', 'FPH')),
-    categorie                 TEXT CHECK (categorie IN ('A+', 'A', 'B', 'C')),
-    type_contrat              TEXT CHECK (type_contrat IN ('titulaire', 'contractuel', 'titulaire_ou_contractuel')),
-    duree_contrat_mois        INTEGER CHECK (duree_contrat_mois > 0),
-    temps_travail             TEXT CHECK (temps_travail IN ('complet', 'partiel')),
-    metier                    TEXT,
-    domaine                   TEXT,
-    adresse                   TEXT,
-    commune                   TEXT,
-    code_postal               TEXT,
-    departement               TEXT,
-    latitude                  REAL CHECK (latitude BETWEEN -90 AND 90),
-    longitude                 REAL CHECK (longitude BETWEEN -180 AND 180),
-    precision_geo             TEXT CHECK (precision_geo IN ('adresse', 'commune')),
-    teletravail_jours_semaine REAL CHECK (teletravail_jours_semaine BETWEEN 0 AND 5),
-    remuneration_min          INTEGER CHECK (remuneration_min >= 0),
-    remuneration_max          INTEGER CHECK (remuneration_max >= 0),
-    remuneration_texte        TEXT,
-    management                INTEGER CHECK (management IN (0, 1)),
-    taille_equipe             INTEGER CHECK (taille_equipe >= 0),
-    experience_annees_min     INTEGER CHECK (experience_annees_min >= 0),
-    niveau_diplome            TEXT,
-    competences               TEXT CHECK (competences IS NULL OR json_valid(competences)),
-    date_publication          TEXT,
-    date_limite_candidature   TEXT,
-    date_prise_poste          TEXT,
-    resume                    TEXT,
-    points_attention          TEXT CHECK (points_attention IS NULL OR json_valid(points_attention)),
-    empreinte_carte           TEXT,
-    empreinte_detail          TEXT,
-    empreinte_identite        TEXT,
-    statut                    TEXT NOT NULL DEFAULT 'active' CHECK (statut IN ('active', 'cloturee', 'expiree')),
-    absences_consecutives     INTEGER NOT NULL DEFAULT 0 CHECK (absences_consecutives >= 0),
-    republication_de          TEXT REFERENCES offres (id_offre) ON DELETE SET NULL,
-    date_premiere_vue         TEXT NOT NULL,
-    date_derniere_vue         TEXT NOT NULL,
-    date_maj_detail           TEXT,
-    date_resume               TEXT
-  ) STRICT;
+export const VERSANTS = ['FPE', 'FPT', 'FPH'] as const;
+export const CATEGORIES = ['A+', 'A', 'B', 'C'] as const;
+export const TYPES_CONTRAT = ['titulaire', 'contractuel', 'titulaire_ou_contractuel'] as const;
+export const TEMPS_TRAVAIL = ['complet', 'partiel'] as const;
+export const PRECISIONS_GEO = ['adresse', 'commune'] as const;
+export const STATUTS = ['active', 'cloturee', 'expiree'] as const;
+export const RAISONS = ['nouvelle', 'modifiee'] as const;
+export const STATUTS_EXECUTION = ['en_cours', 'complete', 'incomplete', 'echec'] as const;
 
-  -- Détection des republications : même titre + employeur + commune sous un nouvel identifiant.
-  CREATE INDEX offres_empreinte_identite ON offres (empreinte_identite);
-  CREATE INDEX offres_statut ON offres (statut);
+/** Contrainte CHECK « valeur dans la liste » : la base refuse ce que le typage TypeScript n'aurait pas vu. */
+const dans = (colonne: AnySQLiteColumn, valeurs: readonly string[]) =>
+  sql`${colonne} IN (${sql.join(
+    valeurs.map((v) => sql.raw(`'${v}'`)),
+    sql`, `,
+  )})`;
 
-  CREATE TABLE recherches_offres (
-    nom_recherche TEXT NOT NULL,
-    id_offre      TEXT NOT NULL REFERENCES offres (id_offre) ON DELETE CASCADE,
-    PRIMARY KEY (nom_recherche, id_offre)
-  ) STRICT;
+export const offres = sqliteTable(
+  'offres',
+  {
+    id_offre: text().primaryKey(),
+    url: text().notNull(),
+    titre: text().notNull(),
+    employeur: text(),
+    versant: text({ enum: VERSANTS }),
+    categorie: text({ enum: CATEGORIES }),
+    type_contrat: text({ enum: TYPES_CONTRAT }),
+    duree_contrat_mois: integer(),
+    temps_travail: text({ enum: TEMPS_TRAVAIL }),
+    metier: text(),
+    domaine: text(),
+    adresse: text(),
+    commune: text(),
+    code_postal: text(),
+    departement: text(),
+    latitude: real(),
+    longitude: real(),
+    precision_geo: text({ enum: PRECISIONS_GEO }),
+    teletravail_jours_semaine: real(),
+    remuneration_min: integer(),
+    remuneration_max: integer(),
+    remuneration_texte: text(),
+    management: integer({ mode: 'boolean' }),
+    taille_equipe: integer(),
+    experience_annees_min: integer(),
+    niveau_diplome: text(),
+    competences: text({ mode: 'json' }).$type<string[]>(),
+    date_publication: text(),
+    date_limite_candidature: text(),
+    date_prise_poste: text(),
+    resume: text(),
+    points_attention: text({ mode: 'json' }).$type<string[]>(),
+    empreinte_carte: text(),
+    empreinte_detail: text(),
+    /** Titre + employeur + commune : détecte une offre republiée sous un nouvel identifiant. */
+    empreinte_identite: text(),
+    statut: text({ enum: STATUTS }).notNull().default('active'),
+    absences_consecutives: integer().notNull().default(0),
+    republication_de: text().references((): AnySQLiteColumn => offres.id_offre, { onDelete: 'set null' }),
+    date_premiere_vue: text().notNull(),
+    date_derniere_vue: text().notNull(),
+    date_maj_detail: text(),
+    date_resume: text(),
+  },
+  (t) => [
+    index('offres_empreinte_identite').on(t.empreinte_identite),
+    index('offres_statut').on(t.statut),
+    check('offres_versant', dans(t.versant, VERSANTS)),
+    check('offres_categorie', dans(t.categorie, CATEGORIES)),
+    check('offres_type_contrat', dans(t.type_contrat, TYPES_CONTRAT)),
+    check('offres_temps_travail', dans(t.temps_travail, TEMPS_TRAVAIL)),
+    check('offres_precision_geo', dans(t.precision_geo, PRECISIONS_GEO)),
+    check('offres_statut', dans(t.statut, STATUTS)),
+    check('offres_duree_contrat', sql`${t.duree_contrat_mois} > 0`),
+    check('offres_latitude', sql`${t.latitude} BETWEEN -90 AND 90`),
+    check('offres_longitude', sql`${t.longitude} BETWEEN -180 AND 180`),
+    check('offres_teletravail', sql`${t.teletravail_jours_semaine} BETWEEN 0 AND 5`),
+    check('offres_remuneration', sql`${t.remuneration_min} >= 0 AND ${t.remuneration_max} >= 0`),
+    check('offres_management', sql`${t.management} IN (0, 1)`),
+    check('offres_effectifs', sql`${t.taille_equipe} >= 0 AND ${t.experience_annees_min} >= 0`),
+    check('offres_json', sql`json_valid(${t.competences}) AND json_valid(${t.points_attention})`),
+    check('offres_absences', sql`${t.absences_consecutives} >= 0`),
+  ],
+);
 
-  CREATE TABLE a_resumer (
-    id_offre    TEXT PRIMARY KEY REFERENCES offres (id_offre) ON DELETE CASCADE,
-    raison      TEXT NOT NULL CHECK (raison IN ('nouvelle', 'modifiee')),
-    chemin_brut TEXT NOT NULL,
-    date        TEXT NOT NULL
-  ) STRICT;
+export const recherches_offres = sqliteTable(
+  'recherches_offres',
+  {
+    nom_recherche: text().notNull(),
+    id_offre: text()
+      .notNull()
+      .references(() => offres.id_offre, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.nom_recherche, t.id_offre] })],
+);
 
-  CREATE TABLE geocodage_cache (
-    cle_lieu      TEXT PRIMARY KEY,
-    latitude      REAL NOT NULL CHECK (latitude BETWEEN -90 AND 90),
-    longitude     REAL NOT NULL CHECK (longitude BETWEEN -180 AND 180),
-    precision_geo TEXT NOT NULL CHECK (precision_geo IN ('adresse', 'commune')),
-    source        TEXT NOT NULL,
-    date          TEXT NOT NULL
-  ) STRICT;
+export const a_resumer = sqliteTable(
+  'a_resumer',
+  {
+    id_offre: text()
+      .primaryKey()
+      .references(() => offres.id_offre, { onDelete: 'cascade' }),
+    raison: text({ enum: RAISONS }).notNull(),
+    chemin_brut: text().notNull(),
+    date: text().notNull(),
+  },
+  (t) => [check('a_resumer_raison', dans(t.raison, RAISONS))],
+);
 
-  -- cle_origine = empreinte de l'adresse de départ : l'adresse elle-même n'est jamais en base.
-  CREATE TABLE trajets_cache (
-    cle_origine        TEXT NOT NULL,
-    cle_destination    TEXT NOT NULL,
-    heure_ref          TEXT NOT NULL,
-    duree_min          INTEGER CHECK (duree_min >= 0),
-    nb_correspondances INTEGER CHECK (nb_correspondances >= 0),
-    date               TEXT NOT NULL,
-    PRIMARY KEY (cle_origine, cle_destination, heure_ref)
-  ) STRICT;
+export const geocodage_cache = sqliteTable(
+  'geocodage_cache',
+  {
+    cle_lieu: text().primaryKey(),
+    latitude: real().notNull(),
+    longitude: real().notNull(),
+    precision_geo: text({ enum: PRECISIONS_GEO }).notNull(),
+    source: text().notNull(),
+    date: text().notNull(),
+  },
+  (t) => [
+    check('geocodage_latitude', sql`${t.latitude} BETWEEN -90 AND 90`),
+    check('geocodage_longitude', sql`${t.longitude} BETWEEN -180 AND 180`),
+    check('geocodage_precision', dans(t.precision_geo, PRECISIONS_GEO)),
+  ],
+);
 
-  CREATE TABLE executions (
-    id           INTEGER PRIMARY KEY,
-    debut        TEXT NOT NULL,
-    fin          TEXT,
-    statut       TEXT NOT NULL DEFAULT 'en_cours' CHECK (statut IN ('en_cours', 'complete', 'incomplete', 'echec')),
-    code_sortie  INTEGER,
-    nb_cartes    INTEGER,
-    nb_nouvelles INTEGER,
-    nb_modifiees INTEGER,
-    nb_expirees  INTEGER,
-    message      TEXT
-  ) STRICT;
-  `,
-];
+/** `cle_origine` = empreinte de l'adresse de départ : l'adresse elle-même n'est jamais en base. */
+export const trajets_cache = sqliteTable(
+  'trajets_cache',
+  {
+    cle_origine: text().notNull(),
+    cle_destination: text().notNull(),
+    heure_ref: text().notNull(),
+    /** null = aucun itinéraire (mis en cache aussi, pour ne pas redemander chaque jour). */
+    duree_min: integer(),
+    nb_correspondances: integer(),
+    date: text().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.cle_origine, t.cle_destination, t.heure_ref] }),
+    check('trajets_positifs', sql`${t.duree_min} >= 0 AND ${t.nb_correspondances} >= 0`),
+  ],
+);
 
-export type Versant = 'FPE' | 'FPT' | 'FPH';
-export type Categorie = 'A+' | 'A' | 'B' | 'C';
-export type TypeContrat = 'titulaire' | 'contractuel' | 'titulaire_ou_contractuel';
-export type Statut = 'active' | 'cloturee' | 'expiree';
-export type PrecisionGeo = 'adresse' | 'commune';
+export const executions = sqliteTable(
+  'executions',
+  {
+    id: integer().primaryKey(),
+    debut: text().notNull(),
+    fin: text(),
+    statut: text({ enum: STATUTS_EXECUTION }).notNull().default('en_cours'),
+    code_sortie: integer(),
+    nb_cartes: integer(),
+    nb_nouvelles: integer(),
+    nb_modifiees: integer(),
+    nb_expirees: integer(),
+    message: text(),
+  },
+  (t) => [check('executions_statut', dans(t.statut, STATUTS_EXECUTION))],
+);
+
+export type Offre = typeof offres.$inferSelect;
+export type Execution = typeof executions.$inferSelect;
+export type Geocodage = typeof geocodage_cache.$inferSelect;
+export type Trajet = typeof trajets_cache.$inferSelect;
+export type PrecisionGeo = (typeof PRECISIONS_GEO)[number];
 
 /** Champs posés par le code (carte, page détail, géocodage). */
-export interface ChampsCode {
-  id_offre: string;
-  url: string;
-  titre: string;
-  employeur: string | null;
-  versant: Versant | null;
-  categorie: Categorie | null;
-  type_contrat: TypeContrat | null;
-  temps_travail: 'complet' | 'partiel' | null;
-  metier: string | null;
-  domaine: string | null;
-  adresse: string | null;
-  commune: string | null;
-  code_postal: string | null;
-  departement: string | null;
-  latitude: number | null;
-  longitude: number | null;
-  precision_geo: PrecisionGeo | null;
-  date_publication: string | null;
-  date_limite_candidature: string | null;
-  empreinte_carte: string | null;
-  empreinte_detail: string | null;
-  empreinte_identite: string | null;
-}
+export type ChampsCode = Pick<
+  Offre,
+  | 'id_offre'
+  | 'url'
+  | 'titre'
+  | 'employeur'
+  | 'versant'
+  | 'categorie'
+  | 'type_contrat'
+  | 'temps_travail'
+  | 'metier'
+  | 'domaine'
+  | 'adresse'
+  | 'commune'
+  | 'code_postal'
+  | 'departement'
+  | 'latitude'
+  | 'longitude'
+  | 'precision_geo'
+  | 'date_publication'
+  | 'date_limite_candidature'
+  | 'empreinte_carte'
+  | 'empreinte_detail'
+  | 'empreinte_identite'
+>;
 
 /** Champs écrits par Claude à partir du texte libre (validés par zod en phase 6). */
-export interface ChampsResume {
+export type ChampsResume = Pick<
+  Offre,
+  | 'duree_contrat_mois'
+  | 'teletravail_jours_semaine'
+  | 'remuneration_min'
+  | 'remuneration_max'
+  | 'remuneration_texte'
+  | 'management'
+  | 'taille_equipe'
+  | 'experience_annees_min'
+  | 'niveau_diplome'
+  | 'date_prise_poste'
+> & {
   resume: string;
   points_attention: string[];
   competences: string[];
-  type_contrat?: TypeContrat | null;
-  duree_contrat_mois: number | null;
-  temps_travail?: 'complet' | 'partiel' | null;
-  teletravail_jours_semaine: number | null;
-  remuneration_min: number | null;
-  remuneration_max: number | null;
-  remuneration_texte: string | null;
-  management: boolean | null;
-  taille_equipe: number | null;
-  experience_annees_min: number | null;
-  niveau_diplome: string | null;
-  date_prise_poste: string | null;
-}
-
-/** Ligne complète de la table `offres`, JSON décodé et booléens restitués. */
-export interface Offre extends ChampsCode, Omit<ChampsResume, 'resume' | 'points_attention' | 'competences'> {
-  type_contrat: TypeContrat | null;
-  temps_travail: 'complet' | 'partiel' | null;
-  resume: string | null;
-  points_attention: string[] | null;
-  competences: string[] | null;
-  statut: Statut;
-  absences_consecutives: number;
-  republication_de: string | null;
-  date_premiere_vue: string;
-  date_derniere_vue: string;
-  date_maj_detail: string | null;
-  date_resume: string | null;
-}
-
-export interface Execution {
-  id: number;
-  debut: string;
-  fin: string | null;
-  statut: 'en_cours' | 'complete' | 'incomplete' | 'echec';
-  code_sortie: number | null;
-  nb_cartes: number | null;
-  nb_nouvelles: number | null;
-  nb_modifiees: number | null;
-  nb_expirees: number | null;
-  message: string | null;
-}
+  type_contrat?: Offre['type_contrat'];
+  temps_travail?: Offre['temps_travail'];
+};

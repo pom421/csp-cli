@@ -1,11 +1,9 @@
 import { mkdtempSync, statSync } from 'node:fs';
-import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
 import { Depot } from '../db/depot.ts';
-import { migrer, versionSchema } from '../db/migrations.ts';
-import { MIGRATIONS, type ChampsCode, type ChampsResume } from '../db/schema.ts';
+import type { ChampsCode, ChampsResume } from '../db/schema.ts';
 
 const J1 = '2026-10-19';
 const J2 = '2026-10-20';
@@ -63,26 +61,16 @@ beforeEach(() => {
 afterEach(() => depot.fermer());
 
 describe('migrations', () => {
-  it('amène une base vide à la dernière version, puis ne fait plus rien', () => {
-    const db = new DatabaseSync(':memory:');
-    expect(migrer(db)).toBe(MIGRATIONS.length);
-    expect(versionSchema(db)).toBe(MIGRATIONS.length);
-    expect(migrer(db)).toBe(0);
-  });
-
-  it('annule entièrement une migration qui échoue', () => {
-    const db = new DatabaseSync(':memory:');
-    expect(() =>
-      migrer(db, ['CREATE TABLE a (x INTEGER) STRICT', 'CREATE TABLE b (x INTEGER); SYNTAXE INVALIDE']),
-    ).toThrow();
-    expect(versionSchema(db)).toBe(1);
-    expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'b'").get()).toBeUndefined();
-  });
-
-  it('refuse une base plus récente que le code', () => {
-    const db = new DatabaseSync(':memory:');
-    db.exec('PRAGMA user_version = 99');
-    expect(() => migrer(db)).toThrow('plus récente');
+  it("s'appliquent une seule fois : une base rouverte garde ses données", () => {
+    const chemin = join(mkdtempSync(join(tmpdir(), 'csp-')), 'csp.sqlite');
+    const d1 = new Depot(chemin);
+    d1.enregistrerOffre(offre(), J1);
+    d1.fermer();
+    const d2 = new Depot(chemin);
+    expect(d2.listerOffres()).toHaveLength(1);
+    const appliquees = d2.client.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get() as { n: number };
+    expect(appliquees.n).toBeGreaterThan(0);
+    d2.fermer();
   });
 });
 
@@ -124,7 +112,7 @@ describe('offres', () => {
     expect(depot.expirer(3)).toEqual([]);
     depot.noterAbsences(['2026-2445380']);
     expect(depot.expirer(3)).toEqual(['2026-2445380']);
-    expect(depot.offres('expiree')).toHaveLength(1);
+    expect(depot.listerOffres('expiree')).toHaveLength(1);
     depot.enregistrerOffre(offre(), J2);
     expect(depot.obtenirOffre('2026-2445380')).toMatchObject({ statut: 'active', absences_consecutives: 0 });
   });
@@ -155,8 +143,19 @@ describe('offres', () => {
   });
 
   it('refuse une valeur hors domaine (contrainte CHECK)', () => {
-    expect(() => depot.enregistrerOffre(offre({ categorie: 'D' as 'A' }), J1)).toThrow(/CHECK/);
-    expect(() => depot.enregistrerOffre(offre({ latitude: 120 }), J1)).toThrow(/CHECK/);
+    // Drizzle enveloppe l'erreur SQLite : le motif est dans `cause`.
+    const cause = (fn: () => unknown) => {
+      try {
+        fn();
+      } catch (e) {
+        return String((e as Error).cause);
+      }
+      return 'aucune erreur';
+    };
+    expect(cause(() => depot.enregistrerOffre(offre({ categorie: 'D' as 'A' }), J1))).toMatch(
+      /CHECK.*offres_categorie/,
+    );
+    expect(cause(() => depot.enregistrerOffre(offre({ latitude: 120 }), J1))).toMatch(/CHECK.*offres_latitude/);
   });
 
   it('annule toute la transaction englobante en cas d’erreur', () => {
@@ -166,7 +165,7 @@ describe('offres', () => {
         throw new Error('panne au milieu');
       }),
     ).toThrow('panne');
-    expect(depot.offres()).toEqual([]);
+    expect(depot.listerOffres()).toEqual([]);
   });
 });
 
@@ -281,7 +280,7 @@ describe('injection SQL', () => {
     depot.ajouterAResumer(texte, 'nouvelle', texte, J1);
     expect(depot.obtenirOffre(texte)).toMatchObject({ id_offre: texte, titre: texte, employeur: texte });
     expect(depot.obtenirOffre('2026-2445380')!.statut).toBe('active');
-    expect(depot.offres()).toHaveLength(2);
+    expect(depot.listerOffres()).toHaveLength(2);
   });
 
   it('ne trouve rien avec une clé de cache piégée', () => {

@@ -15,14 +15,17 @@
     "csp": "node --use-system-ca --disable-warning=ExperimentalWarning src/cli.ts",
     "test": "vp test",
     "ready": "vp check && vp test",
-    "secrets:scan": "gitleaks git --redact --no-banner --config .gitleaks.toml && gitleaks git --pre-commit --redact --no-banner --config .gitleaks.toml"
+    "secrets:scan": "gitleaks git --redact --no-banner --config .gitleaks.toml && gitleaks git --pre-commit --redact --no-banner --config .gitleaks.toml",
+    "db:generer": "drizzle-kit generate"
   },
   "dependencies": {
+    "drizzle-orm": "1.0.0-rc.4",
     "yaml": "2.9.1",
     "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/node": "26.6.3",
+    "drizzle-kit": "1.0.0-rc.4",
     "typescript": "7.0.2",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.1.0",
     "vite-plus": "1.1.0"
