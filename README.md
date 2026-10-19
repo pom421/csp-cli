@@ -3,8 +3,8 @@
 Veille quotidienne des offres d'emploi de [Choisir le service public](https://choisirleservicepublic.gouv.fr/) : base SQLite
 locale, résumés éditoriaux, temps de trajet en transports en commun. Usage personnel (voir [CONFORMITE.md](CONFORMITE.md)).
 
-État : phases 0 à 4 du [plan](PLAN.md) (reconnaissance, socle, base, liste et détail des offres). Restent le géocodage et les
-trajets, les résumés, la gestion de casse et la planification.
+État : phases 0 à 4 et 6 du [plan](PLAN.md) (reconnaissance, socle, base, liste et détail des offres, résumés). Restent le
+géocodage et les trajets, la gestion de casse et la planification.
 
 ## Installation
 
@@ -28,13 +28,18 @@ chmod 600 ~/.config/csp-veille/*
 ```
 
 - `recherches.yaml` : recherches lancées chaque jour (mots-clés, localisation, catégories, versants…).
-- `.env` : adresse de départ des trajets (`CSP_ORIGINE_TRAJET`, donnée personnelle) et heure de départ.
+- `.env` : adresse de départ des trajets (`CSP_ORIGINE_TRAJET`, donnée personnelle), heure de départ, et fournisseur des
+  résumés : `CSP_LLM_FOURNISSEUR=anthropic` (Claude, `claude-opus-5-5` par défaut) ou `albert` (API Albert d'Etalab,
+  `CSP_LLM_MODELE` obligatoire), avec la clé dans `CSP_LLM_CLE`. Voir `.env.example`.
 
 ## Commandes
 
 ```bash
 pnpm csp doctor
 pnpm csp collecte [--dry-run] [--recherche <nom>] [--json]
+pnpm csp resumer [--limite <n>] [--json]
+pnpm csp a-resumer [--json]
+pnpm csp resume enregistrer <id> <fichier.json>
 ```
 
 | Code de sortie | Signification                                            |

@@ -2,18 +2,23 @@
 // Toute autre URL est refusée, y compris les liens trouvés dans le texte des offres.
 import { UserError } from '../erreurs.ts';
 
-export type Service = 'site' | 'geocodage' | 'trajets';
+export type Service = 'site' | 'geocodage' | 'trajets' | 'anthropic' | 'albert';
 
 const ORIGINES_OFFICIELLES: Record<Service, string> = {
   site: 'https://choisirleservicepublic.gouv.fr',
   geocodage: 'https://data.geopf.fr',
   trajets: 'https://api.transitous.org',
+  // Fournisseurs de résumés (un seul utilisé à la fois, choisi par CSP_LLM_FOURNISSEUR).
+  anthropic: 'https://api.anthropic.com',
+  albert: 'https://albert.api.etalab.gouv.fr',
 };
 
 const VARIABLES: Record<Service, string> = {
   site: 'CSP_SITE_URL',
   geocodage: 'CSP_GEOCODAGE_URL',
   trajets: 'CSP_TRAJETS_URL',
+  anthropic: 'CSP_ANTHROPIC_URL',
+  albert: 'CSP_ALBERT_URL',
 };
 
 const HOTES_LOCAUX = ['localhost', '127.0.0.1', '[::1]'];

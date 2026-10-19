@@ -30,7 +30,11 @@ export interface Reponse {
  * GET poli. Les redirections sont suivies à la main pour revérifier la liste blanche à chaque saut.
  * Aucun cookie n'est envoyé ni conservé.
  */
-export async function obtenir(brut: string | URL, accept = 'text/html'): Promise<Reponse> {
+export async function obtenir(
+  brut: string | URL,
+  accept = 'text/html',
+  entetes: Record<string, string> = {},
+): Promise<Reponse> {
   let url = urlAutorisee(brut);
   for (let saut = 0; saut <= MAX_REDIRECTIONS; saut++) {
     await attendreTour(url.origin);
@@ -38,7 +42,7 @@ export async function obtenir(brut: string | URL, accept = 'text/html'): Promise
     try {
       res = await fetch(url, {
         redirect: 'manual',
-        headers: { 'user-agent': USER_AGENT, accept },
+        headers: { 'user-agent': USER_AGENT, accept, ...entetes },
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
     } catch (e) {
@@ -62,6 +66,32 @@ export async function obtenir(brut: string | URL, accept = 'text/html'): Promise
     return { url: url.href, statut: res.status, texte: await res.text() };
   }
   throw new IndisponibleError(`Trop de redirections : ${url.href}`);
+}
+
+/**
+ * POST JSON vers une origine de la liste blanche (API de résumés). Pas de redirection suivie, pas de délai de
+ * politesse (service payant, débit géré par le fournisseur). Le corps de la réponse est renvoyé tel quel.
+ */
+export async function envoyerJson(
+  brut: string | URL,
+  corps: unknown,
+  entetes: Record<string, string> = {},
+  timeoutMs = 120_000,
+): Promise<Reponse> {
+  const url = urlAutorisee(brut);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      redirect: 'error',
+      headers: { 'user-agent': USER_AGENT, 'content-type': 'application/json', accept: 'application/json', ...entetes },
+      body: JSON.stringify(corps),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (e) {
+    throw new IndisponibleError(`${url.origin} injoignable : ${(e as Error).message}`);
+  }
+  return { url: url.href, statut: res.status, texte: await res.text() };
 }
 
 /**
