@@ -153,7 +153,7 @@ Tâche planifiée Claude (6h, Mac allumé)
     `heure_ref` = « mardi 08:00 » ; recalcul au-delà de **90 jours** (changements d'horaires)
   - Interface `FournisseurTrajet` → Navitia branchable plus tard
   - Conditions d'usage (https://transitous.org/api/) : projet libre et non commercial, usage léger, user-agent avec
-    contact (`csp-cli/0.1 (+https://github.com/pom421/veille-emploi-public; …)`), **attribution
+    contact (`csp-cli/0.1 (+https://github.com/pom421/csp-cli; …)`), **attribution
     https://transitous.org/sources/ visible** (README, rapport en phase 8). Appels séquentiels, débit de `http.ts`
   - Adresse de départ : texte géocodé à chaque exécution (gardé en mémoire), ou `lat,lon` directement ; en base,
     seulement son empreinte (`cle_origine`)

@@ -44,7 +44,8 @@ export async function trajetsDuJour(depot: Depot, options: OptionsTrajets): Prom
   try {
     origine = await origineTrajet(options.geocodage ?? sourceIgn, options.origine ?? process.env.CSP_ORIGINE_TRAJET);
   } catch (e) {
-    if (!(e instanceof IndisponibleError || e instanceof BlocageError)) throw e;
+    // Adresse introuvable (configuration) ou géocodeur en panne : la collecte est faite, seuls les trajets manquent.
+    if (!(e instanceof IndisponibleError || e instanceof BlocageError || e instanceof UserError)) throw e;
     return bilanVide(fournisseur.nom, `adresse de départ non géocodée : ${e.message}`);
   }
   if (!origine) return null;
