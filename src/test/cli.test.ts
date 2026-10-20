@@ -41,6 +41,31 @@ beforeAll(async () => {
       res.writeHead(200).end(pageMinimale('2026-2445380', false));
     else if (req.url === '/offre-emploi/poste-reference-2026-2445380/')
       res.writeHead(200).end(fixture('detail-2026-2445380'));
+    // Fausse Géoplateforme : la commune de l'offre de la fixture, et l'adresse de départ fictive.
+    else if (req.url?.startsWith('/geocodage/search?')) {
+      const parametres = new URL(req.url, site.url).searchParams;
+      const q = parametres.get('index') === 'poi' ? '' : (parametres.get('q') ?? '');
+      const trouve = q === 'Nice' || q === 'adresse de départ fictive';
+      const feature = {
+        geometry: { coordinates: q === 'Nice' ? [7.27, 43.7] : [7.2, 43.66] },
+        // Les cartes de test annoncent toutes le Loiret.
+        properties: { type: q === 'Nice' ? 'municipality' : 'housenumber', score: 0.9, depcode: '45' },
+      };
+      res
+        .writeHead(200, { 'content-type': 'application/json' })
+        .end(JSON.stringify({ features: trouve ? [feature] : [] }));
+    }
+    // Faux Transitous : arrivée 42 minutes après l'heure demandée.
+    else if (req.url?.startsWith('/api/v5/plan?')) {
+      const depart = Date.parse(new URL(req.url, site.url).searchParams.get('time') ?? '');
+      const fin = new Date(depart + 42 * 60_000).toISOString();
+      res.writeHead(200, { 'content-type': 'application/json' }).end(
+        JSON.stringify({
+          itineraries: [{ startTime: new Date(depart).toISOString(), endTime: fin, transfers: 1 }],
+          direct: [],
+        }),
+      );
+    }
     // Faux Albert : renvoie toujours le même résumé valide.
     else if (req.url === '/v1/chat/completions' && req.method === 'POST') {
       req.resume();
@@ -159,7 +184,36 @@ describe('csp collecte', () => {
     expect(r.sortie).toContain('À résumer : 1');
     expect(statSync(join(home, 'csp.sqlite')).mode & 0o777).toBe(0o600);
     expect(statSync(join(home, 'brut', '2026-2445380.txt')).mode & 0o777).toBe(0o600);
-    expect((await csp(home, 'collecte')).sortie).toContain('inchangées : 1');
+    expect(r.sortie).toContain('Géocodage : 4 appel(s), 0 offre(s) sans coordonnées');
+    expect(r.sortie).toContain('Trajets (transitous) : 1 calculé(s)');
+    const encore = await csp(home, 'collecte');
+    expect(encore.sortie).toContain('inchangées : 1');
+    expect(encore.sortie).toContain('Géocodage : 0 appel(s)');
+    expect(encore.sortie).toContain('0 calculé(s), 1 en cache');
+  });
+});
+
+describe('csp trajets', () => {
+  it('liste les trajets en cache, et les recalcule tous avec --recalculer', async () => {
+    const home = homeComplet();
+    writeFileSync(join(home, 'recherches.yaml'), 'recherches:\n  - nom: b\n    categories: [B]\n');
+    expect(await csp(home, 'trajets')).toMatchObject({ code: 1, sortie: expect.stringContaining('Base absente') });
+    await csp(home, 'collecte');
+    const r = await csp(home, 'trajets');
+    expect(r).toMatchObject({ code: 0, sortie: expect.stringContaining('0 calculé(s), 1 en cache') });
+    expect(r.sortie).toContain('40 min, 1 correspondance(s) — Chargé(e) de mission');
+    expect((await csp(home, 'trajets', '--recalculer')).sortie).toContain('1 calculé(s), 0 en cache');
+  });
+
+  it('exige une adresse de départ', async () => {
+    const home = homeComplet();
+    writeFileSync(join(home, 'recherches.yaml'), 'recherches:\n  - nom: b\n    categories: [B]\n');
+    await csp(home, 'collecte');
+    writeFileSync(join(home, '.env'), '', { mode: 0o600 });
+    expect(await csp(home, 'trajets')).toMatchObject({
+      code: 1,
+      sortie: expect.stringContaining('CSP_ORIGINE_TRAJET vide'),
+    });
   });
 });
 

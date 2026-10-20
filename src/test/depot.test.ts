@@ -27,9 +27,6 @@ function offre(champs: Partial<ChampsCode> = {}): ChampsCode {
     commune: 'Nice',
     code_postal: null,
     departement: '06',
-    latitude: null,
-    longitude: null,
-    precision_geo: null,
     management: null,
     teletravail_possible: null,
     date_publication: J1,
@@ -183,7 +180,10 @@ describe('offres', () => {
     expect(cause(() => depot.enregistrerOffre(offre({ categorie: 'D' as 'A' }), J1))).toMatch(
       /CHECK.*offres_categorie/,
     );
-    expect(cause(() => depot.enregistrerOffre(offre({ latitude: 120 }), J1))).toMatch(/CHECK.*offres_latitude/);
+    depot.enregistrerOffre(offre(), J1);
+    expect(
+      cause(() => depot.poserGeo('2026-2445380', { latitude: 120, longitude: 7, precision_geo: 'commune' })),
+    ).toMatch(/CHECK.*offres_latitude/);
   });
 
   it('annule toute la transaction englobante en cas d’erreur', () => {
@@ -252,7 +252,23 @@ describe('caches et exécutions', () => {
     expect(depot.lireGeocodage('absent')).toBeUndefined();
   });
 
-  it('met en cache un trajet, y compris « aucun itinéraire », et vide le cache', () => {
+  it('met en cache un lieu introuvable, jamais des coordonnées incomplètes', () => {
+    const vide = { cle_lieu: 'loiret', latitude: null, longitude: null, precision_geo: null, source: 'ign', date: J1 };
+    depot.ecrireGeocodage(vide);
+    expect(depot.lireGeocodage('loiret')).toMatchObject({ latitude: null, precision_geo: null });
+    expect(() => depot.ecrireGeocodage({ ...vide, latitude: 47.9 })).toThrow();
+  });
+
+  it('pose les coordonnées sans que la collecte suivante les efface', () => {
+    depot.enregistrerOffre(offre(), J1);
+    expect(depot.offresSansGeo().map((o) => o.id_offre)).toEqual(['2026-2445380']);
+    depot.poserGeo('2026-2445380', { latitude: 43.7, longitude: 7.26, precision_geo: 'commune' });
+    depot.enregistrerOffre(offre({ empreinte_detail: 'd2' }), J2);
+    expect(depot.obtenirOffre('2026-2445380')).toMatchObject({ latitude: 43.7, precision_geo: 'commune' });
+    expect(depot.offresSansGeo()).toEqual([]);
+  });
+
+  it('met en cache un trajet, y compris « aucun itinéraire », et oublie ceux d’une origine', () => {
     depot.ecrireTrajet({
       cle_origine: 'o',
       cle_destination: 'd',
@@ -271,7 +287,16 @@ describe('caches et exécutions', () => {
     });
     expect(depot.lireTrajet('o', 'd', '08:00')).toMatchObject({ duree_min: 45, nb_correspondances: 1 });
     expect(depot.lireTrajet('o', 'd2', '08:00')).toMatchObject({ duree_min: null });
-    expect(depot.viderTrajets()).toBe(2);
+    depot.ecrireTrajet({
+      cle_origine: 'autre',
+      cle_destination: 'd',
+      heure_ref: '08:00',
+      duree_min: 30,
+      nb_correspondances: 0,
+      date: J1,
+    });
+    expect(depot.viderTrajets('o')).toBe(2);
+    expect(depot.lireTrajet('autre', 'd', '08:00')).toBeDefined();
   });
 
   it('enregistre le début et la fin d’une exécution', () => {

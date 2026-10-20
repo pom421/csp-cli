@@ -3,7 +3,8 @@
 recherches:
   - nom: numerique-orleans
     mots_cles: ['chef de projet numérique']
-    # departements / regions : filtrés par le site ; commune + rayon_km : filtrés localement après géocodage.
+    # departements / regions : filtrés par le site ; commune + rayon_km : filtrés localement après géocodage
+    # (homonymes : « Billy (41) »). Offre hors rayon : ni enregistrée, ni résumée.
     localisation: { departements: ['45', '41'], commune: 'Orléans', rayon_km: 30 }
     teletravail: true
     categories: [A]

@@ -5,7 +5,8 @@ import tls from 'node:tls';
 import { BlocageError, IndisponibleError } from './erreurs.ts';
 import { urlAutorisee } from './securite/urls.ts';
 
-export const USER_AGENT = 'csp-veille/0.1 (veille personnelle, 1 collecte par jour)';
+/** Nom, version et contact : exigés par Transitous, utiles à tout service qui voudrait nous joindre. */
+export const USER_AGENT = 'csp-veille/0.1 (+https://github.com/pom421/veille-emploi-public; veille personnelle)';
 
 /** Délai minimal entre deux requêtes vers une même origine (politesse, CONFORMITE.md règle 3). */
 const delaiMs = () => Number(process.env.CSP_DELAI_MS ?? 2500);

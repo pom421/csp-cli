@@ -29,6 +29,8 @@ Relevé du site : [docs/reconnaissance.md](docs/reconnaissance.md).
 - Aucun contournement : captcha, 403, 429 → arrêt (code 4) et prévenir.
 - Jamais de téléchargement sous `/wp-content/uploads/pdf-offers/` (robots.txt) ; toute origine hors `src/securite/urls.ts` est refusée.
 - Débit : 1 collecte par jour, 1 requête toutes les 2-3 s.
+- Géocodage (IGN) et trajets (Transitous) : faits par le code, avec cache. Transitous est un service bénévole : usage léger,
+  jamais de boucle d'appels ; `csp trajets --recalculer` seulement après un changement d'adresse de départ.
 
 ## Codes de sortie
 

@@ -2,7 +2,7 @@
 import { chmodSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { and, asc, desc, eq, gte, lt, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, lt, ne, sql } from 'drizzle-orm';
 import { drizzle, type NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { migrate } from 'drizzle-orm/node-sqlite/migrator';
 import { UserError } from '../erreurs.ts';
@@ -17,6 +17,7 @@ import {
   type ChampsCode,
   type ChampsResume,
   type Execution,
+  type Geo,
   type Geocodage,
   type Offre,
   type Trajet,
@@ -250,7 +251,22 @@ export class Depot {
     });
   }
 
-  // ── Caches géographiques ──────────────────────────────────────────────────
+  // ── Géographie ────────────────────────────────────────────────────────────
+
+  /** Coordonnées d'une offre (géocodage fait hors transaction, écrit avec elle). */
+  poserGeo(idOffre: string, geo: Geo): void {
+    this.db.update(offres).set(geo).where(eq(offres.id_offre, idOffre)).run();
+  }
+
+  /** Offres actives dont le lieu n'a pas encore été géocodé (`precision_geo` nulle). */
+  offresSansGeo(): Offre[] {
+    return this.db
+      .select()
+      .from(offres)
+      .where(and(eq(offres.statut, 'active'), isNull(offres.precision_geo)))
+      .orderBy(asc(offres.id_offre))
+      .all();
+  }
 
   lireGeocodage(cleLieu: string): Geocodage | undefined {
     return this.db.select().from(geocodage_cache).where(eq(geocodage_cache.cle_lieu, cleLieu)).get();
@@ -290,9 +306,9 @@ export class Depot {
       .run();
   }
 
-  /** Vide le cache de trajets (changement d'adresse de départ : `csp trajets --recalculer`). */
-  viderTrajets(): number {
-    return Number(this.db.delete(trajets_cache).run().changes);
+  /** Oublie les trajets d'une origine (`csp trajets --recalculer`) ; renvoie le nombre de lignes retirées. */
+  viderTrajets(cleOrigine: string): number {
+    return Number(this.db.delete(trajets_cache).where(eq(trajets_cache.cle_origine, cleOrigine)).run().changes);
   }
 
   // ── Exécutions ────────────────────────────────────────────────────────────
