@@ -24,6 +24,15 @@ export function cleComparaison(texte: string): string {
     .trim();
 }
 
+/**
+ * Le mot ou l'expression figure-t-il en mots entiers, sans tenir compte de la casse, des accents ni de la ponctuation ?
+ * « react » est dans « JavaScript / REACT » et « Node.Js, React », pas dans « réactivité » ni « REACH ».
+ */
+export function contientMotExact(texte: string, mot: string): boolean {
+  const cherche = cleComparaison(mot);
+  return cherche !== '' && ` ${cleComparaison(texte)} `.includes(` ${cherche} `);
+}
+
 /** SHA-256 hexadécimal des parties normalisées ; `null` et texte vide ne se confondent pas. */
 export function empreinte(...parties: (string | null | undefined)[]): string {
   const normalisees = parties.map((p) => (p == null ? null : normaliserTexte(p)));

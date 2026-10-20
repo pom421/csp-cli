@@ -132,6 +132,22 @@ describe('collecte --dry-run', () => {
     expect(existsSync(chemin)).toBe(false);
   });
 
+  it('mots_exacts en aperçu : filtre sur le titre seulement, et le dit', async () => {
+    const apercu = (mot: string) =>
+      collecte({
+        dryRun: true,
+        source: source({ [`/nos-offres/filtres/mot-cles/${mot}/`]: pageMinimale('A-1', false) }).s,
+        base: base(),
+        recherches: [rech('a', { mots_cles: [mot], mots_exacts: true })],
+      });
+    // Titre de la carte : « Poste A-1 ».
+    expect((await apercu('Poste')).cartes.map((c) => c.id_offre)).toEqual(['A-1']);
+    const ecartee = await apercu('Pos');
+    expect(ecartee.recherches[0]).toMatchObject({ ecartees_titre: 1 });
+    expect(ecartee.cartes).toEqual([]);
+    expect(formaterBilan(ecartee)).toContain('1 sans les mots-clés dans le titre (aperçu');
+  });
+
   it('refuse une recherche inconnue', async () => {
     await expect(collecte({ dryRun: true, recherche: 'zzz', recherches: [rech('a')] })).rejects.toThrow('inconnue');
   });
@@ -141,6 +157,10 @@ describe('collecte (écriture)', () => {
   const A = '2026-2445380';
   const B = 'O045261014001282';
   const urlDetail = (id: string) => `/offre-emploi/poste-reference-${id}/`;
+  /** Même liste quelle que soit l'URL de recherche (mots-clés, filtres). */
+  const sansFiltres = (s: SourcePages): SourcePages => ({
+    html: (url, etape) => s.html(new URL(url.href.replace(/filtres\/.*$/, '')), etape),
+  });
 
   /** Liste d'une page contenant `ids`, détails servis depuis les fixtures (modifiables). */
   function site(ids: string[], details: Record<string, string> = {}) {
@@ -400,6 +420,29 @@ describe('collecte (écriture)', () => {
     expect(d.obtenirOffre(B)).toMatchObject({ latitude: 47.9029, longitude: 1.9093, precision_geo: 'commune' });
     d.fermer();
     expect(formaterBilan(b)).toContain('Trajets (faux) : 2 calculé(s)');
+  });
+
+  it('mots_exacts : ne garde que les offres qui contiennent un mot-clé en mots entiers, titre ou texte', async () => {
+    const ctx = contexte();
+    // B (« développement culturel ») contient « culturel » ; A (recrutement, rectorat de Nice) ne le contient pas.
+    const recherches = [rech('essai', { mots_cles: ['culturel', 'react'], mots_exacts: true })];
+    const b = await lancer(ctx, sansFiltres(site([A, B]).s), { recherches });
+    expect(b.ecriture).toMatchObject({ nouvelles: [B], hors_mots_cles: [A], a_resumer: 1 });
+    const partiel = await lancer(contexte(), sansFiltres(site([B]).s), {
+      recherches: [rech('essai', { mots_cles: ['cultur'], mots_exacts: true })],
+    });
+    expect(partiel.ecriture).toMatchObject({ nouvelles: [], hors_mots_cles: [B] });
+    expect(formaterBilan(b)).toContain('sans les mots-clés exacts (ignorées) : 1');
+  });
+
+  it('mots_exacts ne filtre que sa recherche : une offre gardée par une autre recherche est enregistrée', async () => {
+    const ctx = contexte();
+    const recherches = [rech('stricte', { mots_cles: ['react'], mots_exacts: true }), rech('large')];
+    const b = await lancer(ctx, sansFiltres(site([A]).s), { recherches });
+    expect(b.ecriture).toMatchObject({ nouvelles: [A] });
+    const d = new Depot(ctx.base);
+    expect(d.recherchesDe(A)).toEqual(['large']);
+    d.fermer();
   });
 
   it('écarte les offres hors du rayon : ni enregistrées, ni résumées', async () => {

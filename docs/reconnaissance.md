@@ -148,6 +148,7 @@ Sitemap: https://choisirleservicepublic.gouv.fr/sitemapindex.xml
   alors le compteur au mauvais nœud ; on utilise **parse5** (arbre identique au navigateur) + css-select.
 - Plafond de 200 pages : le lien « dernière page » plafonne bien à 200 ; non vérifié au-delà (une recherche ne doit pas l'atteindre).
 - Une recherche par mot-clé reste large (le site semble chercher chaque mot) : combiner avec des filtres.
+- Relevé du 20/10/2026 : `mot-cles/react` → 8 785 offres (« réactifs », « Réacteurs », « Reactive », « REACH ») ; `mot-cles/%22react%22` → les mêmes 8 785 : pas de recherche exacte côté site, d'où le filtre local `mots_exacts`.
 
 ## Vérifié en phase 4 (page détail, 5 offres de versants et ministères différents)
 

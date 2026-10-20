@@ -39,31 +39,41 @@ export function heureDepart(): string {
 // Valeurs lisibles ; la correspondance avec les identifiants du site est dans src/scraper/referentiel.ts.
 const texte = z.string().trim().min(1).max(200);
 
-export const RechercheSchema = z.strictObject({
-  nom: z
-    .string()
-    .regex(/^[a-z0-9][a-z0-9-]{0,62}$/, 'minuscules, chiffres et tirets (sert de clé en base et de nom de dossier)'),
-  mots_cles: z.array(texte).max(10).default([]),
-  localisation: z
-    .strictObject({
-      // Filtrés par le site :
-      departements: z.array(z.enum(Object.keys(DEPARTEMENTS) as [string, ...string[]])).optional(),
-      regions: z.array(z.enum(Object.keys(REGIONS) as [string, ...string[]])).optional(),
-      // Filtrés localement après géocodage (phase 5) : le filtre géographique du site ne marche pas par URL.
-      commune: texte.optional(),
-      rayon_km: z.number().positive().max(200).optional(),
-    })
-    .refine((l) => (l.commune === undefined) === (l.rayon_km === undefined), {
-      message: 'commune et rayon_km vont ensemble',
-    })
-    .optional(),
-  teletravail: z.boolean().optional(),
-  management: z.boolean().optional(),
-  categories: z.array(z.enum(['A+', 'A', 'B', 'C'])).optional(),
-  versants: z.array(z.enum(['FPE', 'FPT', 'FPH'])).optional(),
-  type_contrat: z.array(z.enum(['titulaire', 'contractuel'])).optional(),
-  experience: z.enum(['debutant', 'confirme', 'expert']).optional(),
-});
+export const RechercheSchema = z
+  .strictObject({
+    nom: z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9-]{0,62}$/, 'minuscules, chiffres et tirets (sert de clé en base et de nom de dossier)'),
+    mots_cles: z.array(texte).max(10).default([]),
+    /**
+     * La recherche du site est large (« react » ramène « réactivité », « REACH ») : avec `true`, une offre n'est gardée
+     * que si l'un des mots-clés figure en mots entiers dans son titre ou son texte (filtre local, après lecture du détail).
+     */
+    mots_exacts: z.boolean().optional(),
+    localisation: z
+      .strictObject({
+        // Filtrés par le site :
+        departements: z.array(z.enum(Object.keys(DEPARTEMENTS) as [string, ...string[]])).optional(),
+        regions: z.array(z.enum(Object.keys(REGIONS) as [string, ...string[]])).optional(),
+        // Filtrés localement après géocodage (phase 5) : le filtre géographique du site ne marche pas par URL.
+        commune: texte.optional(),
+        rayon_km: z.number().positive().max(200).optional(),
+      })
+      .refine((l) => (l.commune === undefined) === (l.rayon_km === undefined), {
+        message: 'commune et rayon_km vont ensemble',
+      })
+      .optional(),
+    teletravail: z.boolean().optional(),
+    management: z.boolean().optional(),
+    categories: z.array(z.enum(['A+', 'A', 'B', 'C'])).optional(),
+    versants: z.array(z.enum(['FPE', 'FPT', 'FPH'])).optional(),
+    type_contrat: z.array(z.enum(['titulaire', 'contractuel'])).optional(),
+    experience: z.enum(['debutant', 'confirme', 'expert']).optional(),
+  })
+  .refine((r) => !r.mots_exacts || r.mots_cles.length > 0, {
+    message: 'mots_exacts demande au moins un mot-clé',
+    path: ['mots_exacts'],
+  });
 
 export const RecherchesSchema = z
   .strictObject({ recherches: z.array(RechercheSchema).min(1) })

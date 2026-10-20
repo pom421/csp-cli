@@ -28,6 +28,7 @@ describe('recherches.yaml', () => {
     ['recherches:\n  - nom: a\n    localisation: { regions: [Atlantide] }', 'recherches.0.localisation.regions.0'],
     ['recherches:\n  - nom: a\n    champ_inconnu: 1', 'recherches.0'],
     ['recherches:\n  - nom: a\n  - nom: a', 'même nom'],
+    ['recherches:\n  - nom: a\n    mots_exacts: true', 'mots_exacts demande au moins un mot-clé'],
     ['recherches: [', 'YAML invalide'],
   ])('refuse %j', (yaml, motif) => {
     expect(() => lireRecherches(fichier(yaml))).toThrow(motif);

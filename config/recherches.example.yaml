@@ -3,6 +3,9 @@
 recherches:
   - nom: numerique-orleans
     mots_cles: ['chef de projet numérique']
+    # La recherche du site est large (« react » ramène « réactivité ») : mots_exacts ne garde que les offres où un
+    # mot-clé figure en mots entiers (titre ou texte). En --dry-run, seul le titre est vérifié.
+    mots_exacts: true
     # departements / regions : filtrés par le site ; commune + rayon_km : filtrés localement après géocodage
     # (homonymes : « Billy (41) »). Offre hors rayon : ni enregistrée, ni résumée.
     localisation: { departements: ['45', '41'], commune: 'Orléans', rayon_km: 30 }
