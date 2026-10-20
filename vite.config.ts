@@ -13,5 +13,10 @@ export default defineConfig({
     setupFiles: ['src/test/isolation.ts'],
     testTimeout: 30_000, // tests de bout en bout : binaire lancé en sous-processus
   },
-  run: { cache: true },
+  run: {
+    // Scripts jamais mis en cache : `vp run csp collecte` rejouerait sinon le bilan de la veille sans rien collecter
+    // (le cache ne voit que les fichiers du dépôt, pas le site ni la base). Seul `ready`, déterministe, est mis en cache.
+    cache: { scripts: false, tasks: true },
+    tasks: { ready: { command: 'vp check && vp test' } },
+  },
 });
