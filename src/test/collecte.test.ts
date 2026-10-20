@@ -6,6 +6,9 @@ import { collecte, formaterBilan } from '../collecte.ts';
 import type { Recherche } from '../config.ts';
 import { Depot } from '../db/depot.ts';
 import type { ChampsCode } from '../db/schema.ts';
+import { IndisponibleError } from '../erreurs.ts';
+import type { Candidat, SourceGeocodage } from '../geo/geocodage.ts';
+import type { FournisseurTrajet } from '../geo/trajets.ts';
 import { lirePageListe } from '../scraper/liste.ts';
 import { PageAbsenteError, type SourcePages } from '../scraper/source.ts';
 import { fixture, pageMinimale } from './outils.ts';
@@ -164,8 +167,21 @@ describe('collecte (écriture)', () => {
     };
   }
 
+  const commune = (latitude: number, longitude: number, nom: string): Candidat[] => [
+    { latitude, longitude, type: 'municipality', score: 0.95, departement: '45', commune: nom },
+  ];
+  const communes: Record<string, Candidat[]> = {
+    Orléans: commune(47.9029, 1.9093, 'Orléans'),
+    Nice: commune(43.7, 7.27, 'Nice'),
+  };
+  /** Faux géocodeur : Orléans et Nice (lieux des fixtures B et A ; les cartes de test annoncent toutes le Loiret). */
+  const geocodage: SourceGeocodage = {
+    nom: 'faux',
+    chercher: async (q, mode) => (mode === 'commune' && communes[q]) || [],
+  };
+
   const lancer = (ctx: ReturnType<typeof contexte>, s: SourcePages, r: Partial<Parameters<typeof collecte>[0]> = {}) =>
-    collecte({ dryRun: false, source: s, recherches: [rech('essai')], ...ctx, ...r });
+    collecte({ dryRun: false, source: s, recherches: [rech('essai')], geocodage, origineTrajet: '', ...ctx, ...r });
 
   it('enregistre les nouvelles offres, écrit les textes bruts en 0600 sans coordonnées, met la file à jour', async () => {
     const ctx = contexte();
@@ -312,5 +328,49 @@ describe('collecte (écriture)', () => {
     // Le lendemain de la première collecte, A a disparu et N apparaît : republication.
     const b = await lancer(ctx, site([N], { [N]: copie }).s);
     expect(b.ecriture!.republications).toEqual([{ id_offre: N, republication_de: A }]);
+  });
+  it('localise les offres et calcule les trajets depuis l’adresse de départ', async () => {
+    const ctx = contexte();
+    const appels: string[] = [];
+    const fournisseurTrajet: FournisseurTrajet = {
+      nom: 'faux',
+      calculer: async (_depart, arrivee) => {
+        appels.push(`${arrivee.latitude}`);
+        return { duree_min: 25, nb_correspondances: 0 };
+      },
+    };
+    const b = await lancer(ctx, site([A, B]).s, { fournisseurTrajet, origineTrajet: '47.85, 1.92' });
+    expect(b.geo).toMatchObject({ non_localisees: 0, panne: null, rayons_ignores: [] });
+    expect(b.trajets).toMatchObject({ calcules: 2, non_localisees: 0, panne: null });
+    expect(appels.sort()).toEqual(['43.7', '47.9029']);
+    const d = new Depot(ctx.base);
+    expect(d.obtenirOffre(B)).toMatchObject({ latitude: 47.9029, longitude: 1.9093, precision_geo: 'commune' });
+    d.fermer();
+    expect(formaterBilan(b)).toContain('Trajets (faux) : 2 calculé(s)');
+  });
+
+  it('écarte les offres hors du rayon : ni enregistrées, ni résumées', async () => {
+    const ctx = contexte();
+    const recherches = [rech('essai', { localisation: { commune: 'Orléans', rayon_km: 30 } })];
+    const b = await lancer(ctx, site([A, B]).s, { recherches });
+    expect(b.ecriture).toMatchObject({ nouvelles: [B], hors_zone: [A], a_resumer: 1 });
+    const d = new Depot(ctx.base);
+    expect(d.obtenirOffre(A)).toBeUndefined();
+    d.fermer();
+  });
+
+  it('géocodeur en panne : offres enregistrées sans coordonnées, rayon non appliqué, collecte réussie', async () => {
+    const ctx = contexte();
+    const enPanne: SourceGeocodage = {
+      nom: 'faux',
+      chercher: () => Promise.reject(new IndisponibleError('géocodeur injoignable')),
+    };
+    const recherches = [rech('essai', { localisation: { commune: 'Orléans', rayon_km: 30 } })];
+    const b = await lancer(ctx, site([A, B]).s, { recherches, geocodage: enPanne });
+    expect(b.ecriture).toMatchObject({ nouvelles: [A, B], hors_zone: [] });
+    expect(b.geo).toMatchObject({ non_localisees: 2, panne: 'géocodeur injoignable', rayons_ignores: ['essai'] });
+    const d = new Depot(ctx.base);
+    expect(d.derniereExecution()).toMatchObject({ statut: 'complete', code_sortie: 0 });
+    d.fermer();
   });
 });

@@ -3,8 +3,8 @@
 Veille quotidienne des offres d'emploi de [Choisir le service public](https://choisirleservicepublic.gouv.fr/) : base SQLite
 locale, résumés éditoriaux, temps de trajet en transports en commun. Usage personnel (voir [CONFORMITE.md](CONFORMITE.md)).
 
-État : phases 0 à 4 et 6 du [plan](PLAN.md) (reconnaissance, socle, base, liste et détail des offres, résumés). Restent le
-géocodage et les trajets, la gestion de casse et la planification.
+État : phases 0 à 6 du [plan](PLAN.md) (reconnaissance, socle, base, liste et détail des offres, géocodage et trajets,
+résumés). Restent la gestion de casse et la planification.
 
 ## Installation
 
@@ -28,7 +28,7 @@ chmod 600 ~/.config/csp-veille/*
 ```
 
 - `recherches.yaml` : recherches lancées chaque jour (mots-clés, localisation, catégories, versants…).
-- `.env` : adresse de départ des trajets (`CSP_ORIGINE_TRAJET`, donnée personnelle), heure de départ, et fournisseur des
+- `.env` : adresse de départ des trajets (`CSP_ORIGINE_TRAJET`, donnée personnelle, adresse ou `lat,lon`), heure de départ, et fournisseur des
   résumés : `CSP_LLM_FOURNISSEUR=anthropic` (Claude, `claude-opus-5-5` par défaut, clé dans `CSP_LLM_CLE` ou `ANTHROPIC_API_KEY`) ou `albert` (API Albert d'Etalab,
   `CSP_LLM_MODELE` obligatoire), avec la clé dans `CSP_LLM_CLE`. Voir `.env.example`.
 
@@ -37,6 +37,7 @@ chmod 600 ~/.config/csp-veille/*
 ```bash
 pnpm csp doctor
 pnpm csp collecte [--dry-run] [--recherche <nom>] [--json]
+pnpm csp trajets [--recalculer] [--json]
 pnpm csp resumer [--limite <n>] [--json]
 pnpm csp a-resumer [--json]
 pnpm csp resume enregistrer <id> <fichier.json>
@@ -57,4 +58,10 @@ vp run ready         # vp check && vp test
 pnpm secrets:scan    # gitleaks sur l'historique et les fichiers non commités
 ```
 
-Source des offres : Choisir le service public (DGAFP), Licence Etalab 2.0.
+## Sources
+
+- Offres : Choisir le service public (DGAFP), Licence Etalab 2.0.
+- Géocodage : [Géoplateforme IGN](https://geoservices.ign.fr/documentation/services/services-geoplateforme/geocodage)
+  (Base Adresse Nationale, Licence Etalab 2.0).
+- Trajets : [Transitous](https://transitous.org), service bénévole ; données de transport et OpenStreetMap :
+  [sources et licences](https://transitous.org/sources/).

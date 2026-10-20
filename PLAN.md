@@ -52,9 +52,10 @@ Tâche planifiée Claude (6h, Mac allumé)
  │     │                               identique  ? → INCHANGÉE (rien à faire)
  │     │     en base mais absente   → compteur ; absente 3 jours → EXPIRÉE
  │     ├─ extraire champs structurés de la page (catégorie, versant, lieu, dates…)
- │     ├─ géocoder le lieu (cache) + calculer trajet (cache)
- │     └─ écrire texte brut des NOUVELLES/MODIFIÉES dans un dossier temporaire
- │        → file « à résumer »
+ │     ├─ géocoder le lieu (cache) ; recherche « commune + rayon » : offre hors rayon ignorée
+ │     ├─ écrire texte brut des NOUVELLES/MODIFIÉES dans un dossier temporaire
+ │     │  → file « à résumer »
+ │     └─ trajets des offres actives depuis CSP_ORIGINE_TRAJET (cache)
  │
  ├─ 2-3. csp resumer           ← pour chaque offre en attente : texte brut → fournisseur LLM du .env
  │     (CSP_LLM_FOURNISSEUR = anthropic | albert) → JSON contraint par schéma → validation zod
@@ -70,16 +71,16 @@ Tâche planifiée Claude (6h, Mac allumé)
 
 ### Commandes
 
-| Commande                                       | Rôle                                                                                           | LLM ?                   |
-| ---------------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------- |
-| `csp doctor`                                   | Vérifie config, droits fichiers, Node, accès site (robots.txt), accès API géocodage et trajets | non                     |
-| `csp collecte [--recherche <nom>] [--dry-run]` | Étapes 1 (scraping → base → géo → trajets → file à résumer)                                    | non                     |
-| `csp a-resumer`                                | Liste JSON des offres à résumer                                                                | non                     |
-| `csp resume enregistrer <id> <fichier>`        | Valide et enregistre un résumé, purge le brut                                                  | non (appelé par Claude) |
-| `csp resumer [--limite <n>]`                   | Résume la file par le fournisseur du .env (Claude ou Albert), valide, enregistre, purge        | oui (API, clé)          |
-| `csp trajets [--recalculer]`                   | Recalcule les trajets (ex. changement d'adresse de départ)                                     | non                     |
-| `csp rapport [--depuis <date>]`                | Résumé court de la dernière collecte                                                           | non                     |
-| `csp purge`                                    | Supprime textes bruts orphelins / expirés depuis > 30 j                                        | non                     |
+| Commande                                       | Rôle                                                                                                                      | LLM ?                   |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| `csp doctor`                                   | Vérifie config, droits fichiers, Node, accès site (robots.txt), accès API géocodage et trajets                            | non                     |
+| `csp collecte [--recherche <nom>] [--dry-run]` | Étapes 1 (scraping → base → géo → trajets → file à résumer)                                                               | non                     |
+| `csp a-resumer`                                | Liste JSON des offres à résumer                                                                                           | non                     |
+| `csp resume enregistrer <id> <fichier>`        | Valide et enregistre un résumé, purge le brut                                                                             | non (appelé par Claude) |
+| `csp resumer [--limite <n>]`                   | Résume la file par le fournisseur du .env (Claude ou Albert), valide, enregistre, purge                                   | oui (API, clé)          |
+| `csp trajets [--recalculer]`                   | Localise les offres pas encore géocodées, calcule les trajets manquants ; `--recalculer` : changement d'adresse de départ | non                     |
+| `csp rapport [--depuis <date>]`                | Résumé court de la dernière collecte                                                                                      | non                     |
+| `csp purge`                                    | Supprime textes bruts orphelins / expirés depuis > 30 j                                                                   | non                     |
 
 ## 5. Pièges identifiés (et parade)
 
@@ -97,6 +98,10 @@ Tâche planifiée Claude (6h, Mac allumé)
 - **Filtres du site peu fiables** (versant, géolocalisation) → filtrage local, libellé inconnu conservé plutôt qu'écarté
 - **Texte du site affiché au terminal** → caractères de contrôle retirés à la normalisation (pas d'injection de séquences d'échappement)
 - **Migration générée qui recrée une table** (drizzle-kit) → `ON DELETE CASCADE` viderait les tables liées : `ALTER TABLE … ADD` écrit à la main, test de migration avec données
+- **Lieu en texte libre** (« DDETSPP - PÔLE ADM - 31 Mail Charlot - 41000 BLOIS », « ORLEANS CEDEX 2 », « Université d'Orléans », « Loiret (45), France ») → nettoyage (CEDEX, nom du service, département), requêtes de la plus précise à la plus grossière, score minimal, département vérifié (homonymes : Billy 03 / Billy 41) ; lieu introuvable mis en cache aussi
+- **Centre géométrique de la commune loin de tout arrêt** (Meung-sur-Loire : aucun itinéraire ; Orléans : point au sud de la Loire) → point de la **mairie** (index POI de la Géoplateforme), centre de la commune en dernier recours
+- **Pas de départ le matin** (commune rurale) → MOTIS propose l'après-midi (« 660 min ») : seuls les départs dans les 2 h après l'heure demandée comptent, sinon « aucun itinéraire »
+- **Géocodeur ou Transitous en panne** → la collecte réussit quand même (offres sans coordonnées, trajets repris au prochain passage), panne signalée dans le bilan
 - **Anti-bot / captcha / 403** → arrêt immédiat, code 4, jamais de contournement
 - **Mac en veille à 6h** → `sudo pmset repeat wakeorpoweron MTWRFSU 05:55:00` pour le réveiller
 
@@ -124,15 +129,29 @@ Tâche planifiée Claude (6h, Mac allumé)
 
 ## 7. Géocodage et trajets
 
-- **Géocodage** : Géoplateforme IGN (ex-API Adresse, gratuit, sans clé — endpoint exact à vérifier en phase 5)
-  - Cache `geocodage_cache` clé = lieu normalisé (adresse si présente, sinon `code_postal + commune`)
-  - Deux offres même ville ou même adresse → 1 seul appel
-- **Trajet** : Transitous (moteur MOTIS), gratuit, sans clé
-  - Hypothèse : départ **8h un jour de semaine** (prochain mardi, pour éviter jours fériés/lundi)
-  - Durée arrondie à **5 min**, + nb de correspondances
-  - Cache `trajets_cache` clé = `(cle_origine, cle_destination, heure_ref)` → 1 appel par couple ville/adresse
+- **Géocodage** : Géoplateforme IGN, `GET https://data.geopf.fr/geocodage/search` (ex-API Adresse, gratuit, sans clé, 50 req/s)
+  - Requêtes dans l'ordre (`src/geo/lieux.ts`) : adresse (voie + code postal, types `housenumber`/`street`, score ≥ 0,6),
+    mairie de la commune (`index=poi`, catégorie `mairie`, nom de commune identique), centre de la commune
+    (`type=municipality`, score ≥ 0,5) ; 10 candidats demandés, le premier du bon département l'emporte
+  - Cache `geocodage_cache` : clé = lieu normalisé (adresse, code postal, commune, département) **et** clé par requête
+    (la mairie d'Orléans n'est cherchée qu'une fois pour tous les lieux qui y mènent) ; lieu introuvable en cache aussi
+    (coordonnées nulles)
+  - Coordonnées posées sur l'offre (`latitude`, `longitude`, `precision_geo` = `adresse` | `commune`)
+- **Filtre commune + rayon** (recherches.yaml) : centre géocodé (« Billy (41) » pour lever une ambiguïté), distance à vol
+  d'oiseau après lecture du détail (les cartes ne donnent que le département) ; offre hors rayon de toutes ses recherches
+  ni enregistrée ni résumée ; offre non localisée gardée. Pas de filtre en `--dry-run` (pas de détail lu)
+- **Trajet** : Transitous, `GET https://api.transitous.org/api/v5/plan` (MOTIS 2), gratuit, sans clé
+  - Départ **à 8h (CSP_HEURE_DEPART), heure de Paris, le prochain mardi** non férié
+  - Itinéraire retenu : l'arrivée la plus tôt parmi les départs entre 8h et 10h ; durée de porte à porte (marche comprise)
+    arrondie à **5 min**, + nb de correspondances ; aucun départ dans la fenêtre → « aucun itinéraire » (mis en cache)
+  - Cache `trajets_cache` clé = `(cle_origine, cle_destination, heure_ref)` ; destination = coordonnées à 4 décimales,
+    `heure_ref` = « mardi 08:00 » ; recalcul au-delà de **90 jours** (changements d'horaires)
   - Interface `FournisseurTrajet` → Navitia branchable plus tard
-  - Politique d'usage Transitous (user-agent identifiant, débit) à lire et respecter
+  - Conditions d'usage (https://transitous.org/api/) : projet libre et non commercial, usage léger, user-agent avec
+    contact (`csp-veille/0.1 (+https://github.com/pom421/veille-emploi-public; …)`), **attribution
+    https://transitous.org/sources/ visible** (README, rapport en phase 8). Appels séquentiels, débit de `http.ts`
+  - Adresse de départ : texte géocodé à chaque exécution (gardé en mémoire), ou `lat,lon` directement ; en base,
+    seulement son empreinte (`cle_origine`)
 - **Coût** : simples appels HTTP, **0 token**, faits par le code (pas par Claude)
 - **Généralisable pour le futur site web**
   - Ce qui dépend de l'offre (lat/lon) → en base, partagé
@@ -272,7 +291,8 @@ csp-veille/
     ├── scraper/source.ts  selecteurs.ts  referentiel.ts  url.ts  dom.ts  liste.ts  detail.ts
     │           normalisation.ts  erreurs.ts
     ├── db/schema.ts  depot.ts       (+ drizzle/ et drizzle.config.ts à la racine)
-    ├── geo/geocodage.ts  trajets.ts  transitous.ts
+    ├── trajets.ts                   (commande csp trajets, trajets de fin de collecte)
+    ├── geo/lieux.ts  geocodage.ts  trajets.ts  transitous.ts
     ├── resume/schema.ts  enregistrer.ts
     └── test/fixtures/*.html  faux-site.ts  *.test.ts  securite.test.ts
 ```

@@ -127,9 +127,10 @@ export const geocodage_cache = sqliteTable(
   'geocodage_cache',
   {
     cle_lieu: text().primaryKey(),
-    latitude: real().notNull(),
-    longitude: real().notNull(),
-    precision_geo: text({ enum: PRECISIONS_GEO }).notNull(),
+    /** Coordonnées nulles = lieu introuvable (mis en cache aussi, pour ne pas redemander chaque jour). */
+    latitude: real(),
+    longitude: real(),
+    precision_geo: text({ enum: PRECISIONS_GEO }),
     source: text().notNull(),
     date: text().notNull(),
   },
@@ -137,6 +138,10 @@ export const geocodage_cache = sqliteTable(
     check('geocodage_latitude', sql`${t.latitude} BETWEEN -90 AND 90`),
     check('geocodage_longitude', sql`${t.longitude} BETWEEN -180 AND 180`),
     check('geocodage_precision', dans(t.precision_geo, PRECISIONS_GEO)),
+    check(
+      'geocodage_complet',
+      sql`(${t.latitude} IS NULL) = (${t.longitude} IS NULL) AND (${t.latitude} IS NULL) = (${t.precision_geo} IS NULL)`,
+    ),
   ],
 );
 
@@ -179,10 +184,12 @@ export type Offre = typeof offres.$inferSelect;
 export type Execution = typeof executions.$inferSelect;
 export type Geocodage = typeof geocodage_cache.$inferSelect;
 export type Trajet = typeof trajets_cache.$inferSelect;
+/** Coordonnées d'une offre ; `null` partout = lieu introuvable. */
+export type Geo = Pick<Offre, 'latitude' | 'longitude' | 'precision_geo'>;
 export type PrecisionGeo = (typeof PRECISIONS_GEO)[number];
 export type Statut = (typeof STATUTS)[number];
 
-/** Champs posés par le code (carte, page détail, géocodage). */
+/** Champs posés par le code à partir de la carte et de la page détail (les coordonnées : `Depot.poserGeo`). */
 export type ChampsCode = Pick<
   Offre,
   | 'id_offre'
@@ -199,9 +206,6 @@ export type ChampsCode = Pick<
   | 'commune'
   | 'code_postal'
   | 'departement'
-  | 'latitude'
-  | 'longitude'
-  | 'precision_geo'
   | 'management'
   | 'teletravail_possible'
   | 'date_publication'

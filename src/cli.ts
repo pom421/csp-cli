@@ -62,6 +62,21 @@ const COMMANDES: Record<string, Commande> = {
       return 0;
     },
   },
+  trajets: {
+    syntaxe: '[--recalculer] [--json]',
+    aide:
+      'Localise les offres actives qui ne le sont pas encore, calcule les trajets manquants depuis CSP_ORIGINE_TRAJET ;\n' +
+      "--recalculer : oublie les trajets de l'adresse de départ actuelle et les recalcule tous",
+    options: { recalculer: { type: 'boolean' }, ...JSON_OPTION },
+    async executer(v) {
+      if (!existsSync(chemins().base))
+        throw new UserError(`Base absente (${chemins().base}) : lancez d'abord csp collecte.`);
+      const { trajets, formaterResultatTrajets } = await import('./trajets.ts');
+      const resultat = await trajets({ jour: await aujourdhui(), recalculer: Boolean(v.recalculer) });
+      afficher(v, resultat, () => formaterResultatTrajets(resultat));
+      return 0;
+    },
+  },
   'a-resumer': {
     syntaxe: '[--json]',
     aide: 'Offres en attente de résumé (identifiant, raison, texte brut, titre, lien)',

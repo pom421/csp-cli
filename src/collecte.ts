@@ -1,11 +1,16 @@
-// Collecte quotidienne (PLAN §4) : recherches → cartes → détail de chaque offre → base, file « à résumer ».
-// --dry-run : liste seule, comparée à la base ouverte en lecture seule, rien n'est écrit ni téléchargé au-delà des listes.
+// Collecte quotidienne (PLAN §4) : recherches → cartes → détail de chaque offre → géocodage → base, file « à résumer »
+// → trajets. --dry-run : liste seule, comparée à la base ouverte en lecture seule, rien n'est écrit ni téléchargé au-delà
+// des listes (ni géocodage, ni filtre commune + rayon, ni trajets).
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { chemins, lireRecherches, type Recherche } from './config.ts';
 import { Depot } from './db/depot.ts';
-import type { ChampsCode, Statut } from './db/schema.ts';
+import type { ChampsCode, Geo, Statut } from './db/schema.ts';
 import { codeDeSortie, UserError } from './erreurs.ts';
+import { Geocodeur, sourceIgn, type SourceGeocodage } from './geo/geocodage.ts';
+import { distanceKm, type Lieu, type Point } from './geo/lieux.ts';
+import type { BilanTrajets, FournisseurTrajet } from './geo/trajets.ts';
+import { formaterTrajets, trajetsDuJour } from './trajets.ts';
 import { dossierPrive, ecrireFichierPrive } from './securite/fichiers.ts';
 import { lireDetail, type Detail } from './scraper/detail.ts';
 import { parcourirRecherche, type Carte, type ResultatRecherche } from './scraper/liste.ts';
@@ -24,7 +29,19 @@ export interface Ecriture {
   cloturees: string[];
   /** Offre listée mais page retirée avant le téléchargement du détail. */
   pages_retirees: string[];
+  /** Hors du rayon de toutes ses recherches : ni enregistrée, ni résumée. */
+  hors_zone: string[];
   a_resumer: number;
+}
+
+export interface BilanGeo {
+  /** Appels au géocodeur (les lieux déjà vus viennent du cache). */
+  appels: number;
+  /** Offres enregistrées sans coordonnées (lieu introuvable ou géocodeur en panne). */
+  non_localisees: number;
+  panne: string | null;
+  /** Recherches « commune + rayon » non filtrées ce jour (centre impossible à géocoder). */
+  rayons_ignores: string[];
 }
 
 export interface BilanCollecte {
@@ -42,6 +59,10 @@ export interface BilanCollecte {
   partielle: string | null;
   /** Résultat de l'écriture en base ; `null` en --dry-run. */
   ecriture: Ecriture | null;
+  /** `null` en --dry-run. */
+  geo: BilanGeo | null;
+  /** `null` en --dry-run ou sans adresse de départ (CSP_ORIGINE_TRAJET). */
+  trajets: BilanTrajets | null;
 }
 
 export interface OptionsCollecte {
@@ -52,6 +73,10 @@ export interface OptionsCollecte {
   dossierBrut?: string;
   recherches?: Recherche[];
   maintenant?: () => Date;
+  geocodage?: SourceGeocodage;
+  fournisseurTrajet?: FournisseurTrajet;
+  /** Adresse de départ ; par défaut CSP_ORIGINE_TRAJET. */
+  origineTrajet?: string;
 }
 
 /** Date du jour à Paris (AAAA-MM-JJ), quel que soit le fuseau de la machine. */
@@ -93,9 +118,6 @@ export function champsOffre(carte: Carte, d: Detail): ChampsCode {
     commune: d.commune,
     code_postal: d.code_postal,
     departement: carte.departement ?? d.departement,
-    latitude: null,
-    longitude: null,
-    precision_geo: null,
     management: d.management,
     teletravail_possible: d.teletravail_possible,
     date_publication: carte.date_publication ?? d.date_publication,
@@ -131,10 +153,11 @@ export async function collecte(options: OptionsCollecte): Promise<BilanCollecte>
 
   if (options.dryRun) {
     const resultats = await parcourirToutes(source, recherches);
-    if (!existsSync(base)) return { ...comparer(resultats, new Map(), options.recherche), ecriture: null };
+    const apercu = { ecriture: null, geo: null, trajets: null };
+    if (!existsSync(base)) return { ...comparer(resultats, new Map(), options.recherche), ...apercu };
     const depot = new Depot(base, { lectureSeule: true });
     try {
-      return { ...comparer(resultats, statutsEnBase(depot), options.recherche), ecriture: null };
+      return { ...comparer(resultats, statutsEnBase(depot), options.recherche), ...apercu };
     } finally {
       depot.fermer();
     }
@@ -142,12 +165,29 @@ export async function collecte(options: OptionsCollecte): Promise<BilanCollecte>
 
   const depot = new Depot(base);
   const execution = depot.commencerExecution(maintenant().toISOString());
+  const jour = jourParis(maintenant());
   try {
     const resultats = await parcourirToutes(source, recherches);
     const bilan = comparer(resultats, statutsEnBase(depot), options.recherche);
-    const ecriture = await ecrire(depot, source, bilan, {
-      jour: jourParis(maintenant()),
+    const geocodeur = new Geocodeur(depot, options.geocodage ?? sourceIgn, jour);
+    const zones = await zonesRecherches(geocodeur, recherches);
+    const { ecriture, non_localisees } = await ecrire(depot, source, bilan, {
+      jour,
       dossierBrut: options.dossierBrut ?? chemins().brut,
+      geocodeur,
+      zones,
+    });
+    const geo: BilanGeo = {
+      appels: geocodeur.appels,
+      non_localisees,
+      panne: geocodeur.panne,
+      rayons_ignores: [...zones].filter(([, z]) => z === null).map(([nom]) => nom),
+    };
+    const trajets = await trajetsDuJour(depot, {
+      jour,
+      geocodage: geocodeur.source,
+      fournisseur: options.fournisseurTrajet,
+      origine: options.origineTrajet,
     });
     depot.terminerExecution(execution, {
       fin: maintenant().toISOString(),
@@ -159,7 +199,7 @@ export async function collecte(options: OptionsCollecte): Promise<BilanCollecte>
       nb_expirees: ecriture.expirees.length,
       message: bilan.partielle,
     });
-    return { ...bilan, ecriture };
+    return { ...bilan, ecriture, geo, trajets };
   } catch (e) {
     depot.terminerExecution(execution, {
       fin: maintenant().toISOString(),
@@ -201,7 +241,7 @@ function comparer(
   resultats: ResultatRecherche[],
   enBase: Map<string, Statut>,
   rechercheUnique: string | undefined,
-): Omit<BilanCollecte, 'ecriture'> {
+): Omit<BilanCollecte, 'ecriture' | 'geo' | 'trajets'> {
   const cartes = fusionner(resultats);
   const vus = new Set(cartes.map((c) => c.id_offre));
   const partielle = raisonPartielle(resultats, rechercheUnique);
@@ -218,11 +258,45 @@ function comparer(
   };
 }
 
+/** Centre et rayon d'une recherche « commune + rayon » ; `null` : centre non géocodé ce jour, pas de filtre. */
+type Zone = { centre: Point; rayon_km: number } | null;
+
+/** Zones des recherches qui ont une commune et un rayon (les autres ne filtrent rien localement). */
+async function zonesRecherches(geocodeur: Geocodeur, recherches: Recherche[]): Promise<Map<string, Zone>> {
+  const zones = new Map<string, Zone>();
+  for (const r of recherches) {
+    const { commune, rayon_km } = r.localisation ?? {};
+    if (commune === undefined || rayon_km === undefined) continue;
+    const centre = await geocodeur.commune(commune);
+    zones.set(r.nom, centre ? { centre, rayon_km } : null);
+  }
+  return zones;
+}
+
+/**
+ * Recherches que l'offre satisfait vraiment : une recherche avec rayon ne garde que les offres localisées dans
+ * le rayon. Une offre sans coordonnées est gardée (on ne sait pas l'écarter).
+ */
+export function recherchesRetenues(noms: string[], zones: Map<string, Zone>, geo: Geo | undefined): string[] {
+  return noms.filter((nom) => {
+    const zone = zones.get(nom);
+    if (!zone || geo?.latitude == null || geo.longitude == null) return true;
+    return distanceKm(zone.centre, { latitude: geo.latitude, longitude: geo.longitude }) <= zone.rayon_km;
+  });
+}
+
+const lieuDe = (c: ChampsCode): Lieu => ({
+  adresse: c.adresse,
+  code_postal: c.code_postal,
+  commune: c.commune,
+  departement: c.departement,
+});
+
 /** Ce qui est arrivé à une offre lors de l'écriture. */
-type Issue =
-  | { id_offre: string; type: 'retiree' }
-  | { id_offre: string; type: 'inchangee' }
-  | { id_offre: string; type: 'nouvelle' | 'modifiee'; republication_de: string | null };
+type Issue = (
+  | { type: 'retiree' | 'hors_zone' | 'inchangee' }
+  | { type: 'nouvelle' | 'modifiee'; republication_de: string | null }
+) & { id_offre: string; localisee: boolean };
 
 const ECRITURE_VIDE: Ecriture = {
   nouvelles: [],
@@ -232,6 +306,7 @@ const ECRITURE_VIDE: Ecriture = {
   expirees: [],
   cloturees: [],
   pages_retirees: [],
+  hors_zone: [],
   a_resumer: 0,
 };
 
@@ -240,6 +315,8 @@ function cumuler(e: Ecriture, issue: Issue): Ecriture {
   switch (issue.type) {
     case 'retiree':
       return { ...e, pages_retirees: [...e.pages_retirees, issue.id_offre] };
+    case 'hors_zone':
+      return { ...e, hors_zone: [...e.hors_zone, issue.id_offre] };
     case 'inchangee':
       return { ...e, inchangees: e.inchangees + 1 };
     case 'nouvelle':
@@ -258,6 +335,8 @@ interface ContexteEcriture {
   dossierBrut: string;
   /** Offres en ligne aujourd'hui : une offre identique encore en ligne n'est pas une republication. */
   enLigne: Set<string>;
+  geocodeur: Geocodeur;
+  zones: Map<string, Zone>;
 }
 
 /** Télécharge le détail d'une offre et l'enregistre, en une transaction (un arrêt laisse les précédentes complètes). */
@@ -267,14 +346,21 @@ async function traiterOffre(depot: Depot, source: SourcePages, carte: CarteVue, 
   try {
     detail = lireDetail(await source.html(new URL(carte.url), 'lire-detail'), id_offre);
   } catch (err) {
-    if (err instanceof PageAbsenteError) return { id_offre, type: 'retiree' };
+    if (err instanceof PageAbsenteError) return { id_offre, type: 'retiree', localisee: false };
     throw err;
   }
   const champs = champsOffre(carte, detail);
+  // Hors transaction : un appel réseau (le cache répond pour les lieux déjà vus).
+  const geo = await ctx.geocodeur.lieu(lieuDe(champs));
+  const localisee = geo?.latitude != null;
+  const recherches = recherchesRetenues(carte.recherches, ctx.zones, geo);
+  if (!recherches.length) return { id_offre, type: 'hors_zone', localisee };
   return depot.transaction((): Issue => {
     const evolution = depot.enregistrerOffre(champs, ctx.jour);
-    carte.recherches.forEach((nom) => depot.lierRecherche(nom, id_offre));
-    if (evolution === 'inchangee') return { id_offre, type: 'inchangee' };
+    // Géocodeur en panne : les coordonnées déjà connues sont gardées.
+    if (geo) depot.poserGeo(id_offre, geo);
+    recherches.forEach((nom) => depot.lierRecherche(nom, id_offre));
+    if (evolution === 'inchangee') return { id_offre, type: 'inchangee', localisee };
     const origine =
       evolution === 'nouvelle' && champs.empreinte_identite
         ? depot.trouverRepublication(champs.empreinte_identite, id_offre)
@@ -282,7 +368,7 @@ async function traiterOffre(depot: Depot, source: SourcePages, carte: CarteVue, 
     const republication_de = origine && !ctx.enLigne.has(origine) ? origine : null;
     if (republication_de) depot.marquerRepublication(id_offre, republication_de);
     depot.ajouterAResumer(id_offre, evolution, ecrireTexteBrut(ctx.dossierBrut, id_offre, detail.texte_brut), ctx.jour);
-    return { id_offre, type: evolution, republication_de };
+    return { id_offre, type: evolution, republication_de, localisee };
   });
 }
 
@@ -298,19 +384,30 @@ function ecrireTexteBrut(dossierBrut: string, idOffre: string, texte: string): s
 async function ecrire(
   depot: Depot,
   source: SourcePages,
-  bilan: Omit<BilanCollecte, 'ecriture'>,
-  { jour, dossierBrut }: { jour: string; dossierBrut: string },
-): Promise<Ecriture> {
-  const ctx: ContexteEcriture = { jour, dossierBrut, enLigne: new Set(bilan.cartes.map((c) => c.id_offre)) };
+  bilan: Omit<BilanCollecte, 'ecriture' | 'geo' | 'trajets'>,
+  contexte: Omit<ContexteEcriture, 'enLigne'>,
+): Promise<{ ecriture: Ecriture; non_localisees: number }> {
+  const ctx: ContexteEcriture = { ...contexte, enLigne: new Set(bilan.cartes.map((c) => c.id_offre)) };
   const issues: Issue[] = [];
   // Séquentiel : le délai de politesse entre deux pages du site est imposé par http.ts.
   for (const carte of bilan.cartes) issues.push(await traiterOffre(depot, source, carte, ctx));
   if (bilan.absentes) depot.noterAbsences(bilan.absentes);
+  const enregistrees = issues.filter((i) => i.type !== 'retiree' && i.type !== 'hors_zone');
   return {
-    ...issues.reduce(cumuler, ECRITURE_VIDE),
-    expirees: bilan.absentes ? depot.expirer(SEUIL_EXPIRATION) : [],
-    cloturees: depot.cloturer(jour),
+    ecriture: {
+      ...issues.reduce(cumuler, ECRITURE_VIDE),
+      expirees: bilan.absentes ? depot.expirer(SEUIL_EXPIRATION) : [],
+      cloturees: depot.cloturer(ctx.jour),
+    },
+    non_localisees: enregistrees.filter((i) => !i.localisee).length,
   };
+}
+
+function formaterGeo(g: BilanGeo): string[] {
+  const lignes = [`Géocodage : ${g.appels} appel(s), ${g.non_localisees} offre(s) sans coordonnées`];
+  if (g.panne) lignes.push(`  géocodeur en panne (repris au prochain passage) : ${g.panne}`);
+  if (g.rayons_ignores.length) lignes.push(`  rayon non appliqué aujourd'hui : ${g.rayons_ignores.join(', ')}`);
+  return lignes;
 }
 
 /** Bilan lisible (terminal, tâche planifiée). */
@@ -352,8 +449,11 @@ export function formaterBilan(b: BilanCollecte): string {
     `  absentes : ${absentes}`,
     `  expirées : ${e.expirees.length}`,
     `  clôturées (date limite passée) : ${e.cloturees.length}`,
+    `  hors du rayon (ignorées) : ${e.hors_zone.length}`,
     `À résumer : ${e.a_resumer}`,
   );
+  if (b.geo) lignes.push(...formaterGeo(b.geo));
+  lignes.push(b.trajets ? formaterTrajets(b.trajets) : 'Trajets : non calculés (CSP_ORIGINE_TRAJET vide)');
   if (e.nouvelles.length) lignes.push('', 'Nouvelles :', ...e.nouvelles.flatMap(offre));
   if (e.modifiees.length) lignes.push('', 'Modifiées :', ...e.modifiees.flatMap(offre));
   return lignes.join('\n');
