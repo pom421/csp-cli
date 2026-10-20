@@ -1,5 +1,5 @@
 {
-  "name": "csp-veille",
+  "name": "csp-cli",
   "version": "0.1.0",
   "private": true,
   "description": "Veille quotidienne des offres de Choisir le service public : base SQLite locale, résumés, temps de trajet",

@@ -1,4 +1,4 @@
-# csp-veille
+# csp-cli
 
 Veille quotidienne des offres d'emploi de [Choisir le service public](https://choisirleservicepublic.gouv.fr/) : base SQLite
 locale, résumés éditoriaux, temps de trajet en transports en commun. Usage personnel (voir [CONFORMITE.md](CONFORMITE.md)).
@@ -18,13 +18,13 @@ L'installation active le hook `pre-commit` (gitleaks). npm et yarn sont refusés
 
 ## Configuration
 
-Les données restent hors du dépôt, dans `~/.config/csp-veille/` (variable `CSP_HOME` pour changer) :
+Les données restent hors du dépôt, dans `~/.config/csp-cli/` (variable `CSP_HOME` pour changer) :
 
 ```bash
-mkdir -m 700 -p ~/.config/csp-veille
-cp config/recherches.example.yaml ~/.config/csp-veille/recherches.yaml
-cp .env.example ~/.config/csp-veille/.env
-chmod 600 ~/.config/csp-veille/*
+mkdir -m 700 -p ~/.config/csp-cli
+cp config/recherches.example.yaml ~/.config/csp-cli/recherches.yaml
+cp .env.example ~/.config/csp-cli/.env
+chmod 600 ~/.config/csp-cli/*
 ```
 
 - `recherches.yaml` : recherches lancées chaque jour (mots-clés, localisation, catégories, versants…).
@@ -47,7 +47,7 @@ vp run csp purge [--dry-run] [--json]
 ```
 
 En cas de casse du site (code 2), le diagnostic (étape, sélecteur, URL, HTML de la page) est sauvegardé dans
-`~/.config/csp-veille/diagnostics/<jour>/` ; son chemin est affiché après le message d'erreur.
+`~/.config/csp-cli/diagnostics/<jour>/` ; son chemin est affiché après le message d'erreur.
 
 | Code de sortie | Signification                                            |
 | -------------- | -------------------------------------------------------- |

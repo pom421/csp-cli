@@ -103,7 +103,7 @@ async function csp(home: string, ...argv: string[]) {
 }
 
 function homeComplet() {
-  const home = join(mkdtempSync(join(tmpdir(), 'csp-')), 'csp-veille');
+  const home = join(mkdtempSync(join(tmpdir(), 'csp-')), 'csp-cli');
   mkdirSync(home, { mode: 0o700 });
   writeFileSync(join(home, '.env'), 'CSP_ORIGINE_TRAJET="adresse de départ fictive"\n', { mode: 0o600 });
   writeFileSync(join(home, 'recherches.yaml'), 'recherches:\n  - nom: essai\n', { mode: 0o600 });

@@ -163,7 +163,7 @@ function usage(): string {
     ...lignes,
     '',
     'Codes de sortie : 0 OK, 1 autre erreur, 2 casse du site, 3 site indisponible, 4 blocage (captcha, 403, 429).',
-    'Données locales : ~/.config/csp-veille (variable CSP_HOME pour changer).',
+    'Données locales : ~/.config/csp-cli (variable CSP_HOME pour changer).',
   ].join('\n');
 }
 
