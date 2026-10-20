@@ -321,7 +321,7 @@ csp-cli/
 | 7   | Gestion de casse            | codes de sortie, diagnostics                                                         | test : sélecteur cassé volontairement → code 2 + HTML                                                     |
 | 8   | Planification               | tâche planifiée 6h + `rapport`                                                       | message reçu dans la session                                                                              |
 | 9   | Rodage                      | 1 semaine                                                                            | 0 faux « modifié », 0 faux « expiré »                                                                     |
-| 10  | Plus tard                   | page React de consultation                                                           | —                                                                                                         |
+| 10  | Consultation                | `csp web` : application React (filtres, détail, trajets)                             | lecture seule, aucun appel sortant, filtres testés                                                        |
 
 ## 13. Tâche planifiée (prompt de référence)
 

@@ -65,6 +65,9 @@ export const arrondir5 = (minutes: number) => Math.max(5, Math.round(minutes / 5
 
 // ── Origine ─────────────────────────────────────────────────────────────────
 
+/** Empreinte d'un point de départ (texte de `depart`) : retrouve ses trajets en cache sans le géocoder. */
+export const cleOrigine = (texte: string) => empreinte('origine', cleComparaison(texte));
+
 const COORDONNEES = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/;
 
 /** Score minimal : en dessous, le lieu trouvé est souvent un homonyme (« Rue d'Austerlitz » dans le Gard). */
@@ -78,7 +81,7 @@ const TYPES_ADRESSE = ['housenumber', 'street', 'locality', 'municipality'];
  * « Gare de Lyon (75) » : le département écarte les homonymes. Le libellé du lieu retenu est rendu pour vérification.
  */
 export async function pointDeDepart(source: SourceGeocodage, texte: string): Promise<Origine> {
-  const cle = empreinte('origine', cleComparaison(texte));
+  const cle = cleOrigine(texte);
   const m = COORDONNEES.exec(texte);
   if (m) {
     const point = { latitude: Number(m[1]), longitude: Number(m[2]) };

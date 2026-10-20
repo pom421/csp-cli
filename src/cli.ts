@@ -92,6 +92,18 @@ const COMMANDES: Record<string, Commande> = {
       return 0;
     },
   },
+  web: {
+    syntaxe: '[--port <n>]',
+    aide: 'Ouvre l’application de consultation des offres sur http://127.0.0.1:4321 (lecture seule, Ctrl+C pour arrêter)',
+    options: { port: { type: 'string' } },
+    async executer(v) {
+      const port = v.port === undefined ? 4321 : entierOptionnel(v.port, 'port');
+      if (port > 65_535) throw new UserError(`--port attend un entier entre 0 et 65535 : ${port}`);
+      const { lancerWeb } = await import('./web/lancer.ts');
+      await lancerWeb(port);
+      return 0;
+    },
+  },
   'a-resumer': {
     syntaxe: '[--json]',
     aide: 'Offres en attente de résumé (identifiant, raison, texte brut, titre, lien)',

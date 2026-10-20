@@ -15,7 +15,9 @@
     "csp": "node --use-system-ca --disable-warning=ExperimentalWarning src/cli.ts",
     "test": "vp test",
     "secrets:scan": "gitleaks git --redact --no-banner --config .gitleaks.toml && gitleaks git --pre-commit --redact --no-banner --config .gitleaks.toml",
-    "db:generer": "drizzle-kit generate"
+    "db:generer": "drizzle-kit generate",
+    "web:build": "vp build web",
+    "web:dev": "vp dev web"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.79",
@@ -31,8 +33,20 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
     "@types/node": "26.6.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
     "drizzle-kit": "1.0.0-rc.5-5935859",
+    "lucide-react": "1.56.0",
+    "radix-ui": "1.8.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tailwind-merge": "3.7.0",
+    "tailwindcss": "4.3.3",
     "typescript": "7.0.2",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.1.0",
     "vite-plus": "1.1.0"
