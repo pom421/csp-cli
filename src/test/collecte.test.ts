@@ -445,6 +445,16 @@ describe('collecte (écriture)', () => {
     d.fermer();
   });
 
+  it('adresse de départ introuvable : collecte réussie, trajets signalés comme non calculés', async () => {
+    const ctx = contexte();
+    const b = await lancer(ctx, site([B]).s, { origineTrajet: 'adresse de départ' });
+    expect(b.ecriture).toMatchObject({ nouvelles: [B] });
+    expect(b.trajets).toMatchObject({ calcules: 0, panne: expect.stringContaining('adresse introuvable') });
+    const d = new Depot(ctx.base);
+    expect(d.derniereExecution()).toMatchObject({ statut: 'complete', code_sortie: 0 });
+    d.fermer();
+  });
+
   it('écarte les offres hors du rayon : ni enregistrées, ni résumées', async () => {
     const ctx = contexte();
     const recherches = [rech('essai', { localisation: { commune: 'Orléans', rayon_km: 30 } })];

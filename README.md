@@ -24,7 +24,7 @@ Les données restent hors du dépôt, dans `~/.config/csp-cli/` (variable `CSP_H
 mkdir -m 700 -p ~/.config/csp-cli
 cp config/recherches.example.yaml ~/.config/csp-cli/recherches.yaml
 cp .env.example ~/.config/csp-cli/.env
-chmod 600 ~/.config/csp-cli/*
+chmod 600 ~/.config/csp-cli/.env ~/.config/csp-cli/recherches.yaml
 ```
 
 - `recherches.yaml` : recherches lancées chaque jour (mots-clés, localisation, catégories, versants…).
