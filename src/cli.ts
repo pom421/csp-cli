@@ -65,8 +65,8 @@ const COMMANDES: Record<string, Commande> = {
   trajets: {
     syntaxe: '[--recalculer] [--json]',
     aide:
-      'Localise les offres actives qui ne le sont pas encore, calcule les trajets manquants depuis CSP_ORIGINE_TRAJET ;\n' +
-      "--recalculer : oublie les trajets de l'adresse de départ actuelle et les recalcule tous",
+      'Localise les offres actives qui ne le sont pas encore, calcule les trajets manquants depuis le point de départ\n' +
+      'de chaque recherche (« depart » dans recherches.yaml) ; --recalculer : les recalcule tous',
     options: { recalculer: { type: 'boolean' }, ...JSON_OPTION },
     async executer(v) {
       if (!existsSync(chemins().base))

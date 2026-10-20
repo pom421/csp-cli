@@ -38,7 +38,7 @@ Exemples vérifiés :
   des offres des trois versants. → **filtrage local** sur le libellé « Fonction publique : » de la carte. Certaines cartes affichent
   seulement « Fonction publique » (sans versant) : elles sont conservées.
 - **Géolocalisation** (`geoloc/<lat>/<lon>/<rayon>`, points remplacés par `_`) : acceptée dans l'URL mais **non filtrée** côté serveur
-  (résultats de toute la France). → départements/régions côté site, commune + rayon filtrés localement après géocodage (phase 5).
+  (résultats de toute la France). → zone de recherche par départements/régions, filtrés côté site.
 - Département ou région (`localisation/263-262`) : filtrage serveur vérifié (cartes toutes dans le Loiret et le Loir-et-Cher).
 
 ### Valeurs des filtres (identifiants internes du site)

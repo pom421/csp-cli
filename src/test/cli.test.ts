@@ -10,6 +10,9 @@ import { fixture, pageMinimale } from './outils.ts';
 
 const CLI = new URL('../cli.ts', import.meta.url).pathname;
 
+/** Recherche catégorie B (une offre, servie depuis la fixture), avec un point de départ connu du faux géocodeur. */
+const RECHERCHE_B = 'recherches:\n  - nom: b\n    categories: [B]\n    depart: adresse de départ fictive\n';
+
 const RESUME = {
   resume: '- Missions\n- Profil\n- Conditions',
   points_attention: [],
@@ -105,7 +108,7 @@ async function csp(home: string, ...argv: string[]) {
 function homeComplet() {
   const home = join(mkdtempSync(join(tmpdir(), 'csp-')), 'csp-cli');
   mkdirSync(home, { mode: 0o700 });
-  writeFileSync(join(home, '.env'), 'CSP_ORIGINE_TRAJET="adresse de départ fictive"\n', { mode: 0o600 });
+  writeFileSync(join(home, '.env'), 'CSP_HEURE_DEPART=08:00\n', { mode: 0o600 });
   writeFileSync(join(home, 'recherches.yaml'), 'recherches:\n  - nom: essai\n', { mode: 0o600 });
   return home;
 }
@@ -183,14 +186,15 @@ describe('csp collecte', () => {
 
   it('sans --dry-run : lit le détail, crée la base en 0600 et le texte brut à résumer', async () => {
     const home = homeComplet();
-    writeFileSync(join(home, 'recherches.yaml'), 'recherches:\n  - nom: b\n    categories: [B]\n');
+    writeFileSync(join(home, 'recherches.yaml'), RECHERCHE_B);
     const r = await csp(home, 'collecte');
     expect(r).toMatchObject({ code: 0, sortie: expect.stringContaining('nouvelles : 1') });
     expect(r.sortie).toContain('À résumer : 1');
     expect(statSync(join(home, 'csp.sqlite')).mode & 0o777).toBe(0o600);
     expect(statSync(join(home, 'brut', '2026-2445380.txt')).mode & 0o777).toBe(0o600);
     expect(r.sortie).toContain('Géocodage : 4 appel(s), 0 offre(s) sans coordonnées');
-    expect(r.sortie).toContain('Trajets (transitous) : 1 calculé(s)');
+    expect(r.sortie).toContain('Trajets (transitous) :');
+    expect(r.sortie).toMatch(/b, depuis adresse de départ fictive : 1 calculé\(s\)/);
     const encore = await csp(home, 'collecte');
     expect(encore.sortie).toContain('inchangées : 1');
     expect(encore.sortie).toContain('Géocodage : 0 appel(s)');
@@ -201,7 +205,7 @@ describe('csp collecte', () => {
 describe('csp trajets', () => {
   it('liste les trajets en cache, et les recalcule tous avec --recalculer', async () => {
     const home = homeComplet();
-    writeFileSync(join(home, 'recherches.yaml'), 'recherches:\n  - nom: b\n    categories: [B]\n');
+    writeFileSync(join(home, 'recherches.yaml'), RECHERCHE_B);
     expect(await csp(home, 'trajets')).toMatchObject({ code: 1, sortie: expect.stringContaining('Base absente') });
     await csp(home, 'collecte');
     const r = await csp(home, 'trajets');
@@ -210,14 +214,14 @@ describe('csp trajets', () => {
     expect((await csp(home, 'trajets', '--recalculer')).sortie).toContain('1 calculé(s), 0 en cache');
   });
 
-  it('exige une adresse de départ', async () => {
+  it('exige au moins une recherche avec un point de départ', async () => {
     const home = homeComplet();
-    writeFileSync(join(home, 'recherches.yaml'), 'recherches:\n  - nom: b\n    categories: [B]\n');
+    writeFileSync(join(home, 'recherches.yaml'), RECHERCHE_B);
     await csp(home, 'collecte');
-    writeFileSync(join(home, '.env'), '', { mode: 0o600 });
+    writeFileSync(join(home, 'recherches.yaml'), 'recherches:\n  - nom: b\n    categories: [B]\n');
     expect(await csp(home, 'trajets')).toMatchObject({
       code: 1,
-      sortie: expect.stringContaining('CSP_ORIGINE_TRAJET vide'),
+      sortie: expect.stringContaining('Aucune recherche n’a de point de départ'),
     });
   });
 });
@@ -225,7 +229,7 @@ describe('csp trajets', () => {
 describe('csp a-resumer, resume enregistrer, resumer', () => {
   async function homeAvecFile() {
     const home = homeComplet();
-    writeFileSync(join(home, 'recherches.yaml'), 'recherches:\n  - nom: b\n    categories: [B]\n');
+    writeFileSync(join(home, 'recherches.yaml'), RECHERCHE_B);
     await csp(home, 'collecte');
     return home;
   }

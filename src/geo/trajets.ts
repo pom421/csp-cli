@@ -1,12 +1,12 @@
-// Temps de trajet en transports en commun depuis l'adresse de départ (PLAN §7), avec cache en base.
-// L'adresse de départ est une donnée personnelle : seule son empreinte va en base (`cle_origine`), jamais le texte
+// Temps de trajet en transports en commun depuis le point de départ de chaque recherche (PLAN §7), avec cache en base.
+// Le point de départ peut être une adresse personnelle : seule son empreinte va en base (`cle_origine`), jamais le texte
 // ni les coordonnées. Le cache est donc propre à chaque origine et ne touche pas la table des offres.
 import type { Depot } from '../db/depot.ts';
 import type { Offre } from '../db/schema.ts';
 import { BlocageError, IndisponibleError, UserError } from '../erreurs.ts';
 import { cleComparaison, empreinte } from '../scraper/normalisation.ts';
 import type { SourceGeocodage } from './geocodage.ts';
-import type { Point } from './lieux.ts';
+import { nettoyer, type Point } from './lieux.ts';
 
 export interface ResultatTrajet {
   duree_min: number;
@@ -21,9 +21,11 @@ export interface FournisseurTrajet {
 }
 
 export interface Origine {
-  /** Empreinte de l'adresse : clé du cache, seule trace de l'origine en base. */
+  /** Empreinte du point de départ : clé du cache, seule trace de l'origine en base. */
   cle: string;
   point: Point;
+  /** Lieu retenu par le géocodeur (« Gare d'Austerlitz (Paris) »), affiché pour vérification. */
+  libelle: string;
 }
 
 // ── Date de référence ───────────────────────────────────────────────────────
@@ -65,29 +67,46 @@ export const arrondir5 = (minutes: number) => Math.max(5, Math.round(minutes / 5
 
 const COORDONNEES = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/;
 
+/** Score minimal : en dessous, le lieu trouvé est souvent un homonyme (« Rue d'Austerlitz » dans le Gard). */
+const SCORE_DEPART = { poi: 0.5, adresse: 0.6 } as const;
+const TYPES_ADRESSE = ['housenumber', 'street', 'locality', 'municipality'];
+
 /**
- * Adresse de départ (CSP_ORIGINE_TRAJET) : « lat,lon » ou une adresse, géocodée à chaque exécution et gardée
- * en mémoire seulement. `undefined` si la variable est vide (pas de trajets).
+ * Point de départ d'une recherche (`depart` dans recherches.yaml) : « lat,lon », ou un lieu géocodé à chaque
+ * exécution (gardé en mémoire ; en base, seulement son empreinte). Un lieu nommé (« Gare d'Austerlitz ») est cherché
+ * parmi les points d'intérêt, une adresse (avec code postal) parmi les adresses, l'autre index en second recours.
+ * « Gare de Lyon (75) » : le département écarte les homonymes. Le libellé du lieu retenu est rendu pour vérification.
  */
-export async function origineTrajet(
-  source: SourceGeocodage,
-  texte = process.env.CSP_ORIGINE_TRAJET,
-): Promise<Origine | undefined> {
-  if (!texte?.trim()) return undefined;
+export async function pointDeDepart(source: SourceGeocodage, texte: string): Promise<Origine> {
   const cle = empreinte('origine', cleComparaison(texte));
   const m = COORDONNEES.exec(texte);
   if (m) {
     const point = { latitude: Number(m[1]), longitude: Number(m[2]) };
     if (Math.abs(point.latitude) > 90 || Math.abs(point.longitude) > 180) {
-      throw new UserError('CSP_ORIGINE_TRAJET : coordonnées hors bornes');
+      throw new UserError(`point de départ « ${texte} » : coordonnées hors bornes`);
     }
-    return { cle, point };
+    return { cle, point, libelle: `${point.latitude}, ${point.longitude}` };
   }
-  const candidats = await source.chercher(texte, 'adresse');
-  const retenu = candidats.find((c) => c.score >= 0.5);
-  // Le texte de l'adresse n'apparaît pas dans le message : il peut finir dans un journal.
-  if (!retenu) throw new UserError('CSP_ORIGINE_TRAJET : adresse introuvable par le géocodeur, la préciser');
-  return { cle, point: { latitude: retenu.latitude, longitude: retenu.longitude } };
+  const departement = /\((\d{2,3}|2[AB])\)/i.exec(texte)?.[1]?.toUpperCase() ?? null;
+  const q = nettoyer(texte);
+  const modes = /\b\d{5}\b/.test(q) ? (['adresse', 'poi'] as const) : (['poi', 'adresse'] as const);
+  for (const mode of modes) {
+    const retenu = (await source.chercher(q, mode)).find(
+      (c) =>
+        c.score >= SCORE_DEPART[mode] &&
+        (mode === 'poi' || TYPES_ADRESSE.includes(c.type)) &&
+        (departement === null || c.departement?.toUpperCase() === departement),
+    );
+    if (retenu) {
+      const nom = retenu.nom ?? q;
+      const commune = retenu.commune && !nom.includes(retenu.commune) ? ` (${retenu.commune})` : '';
+      return { cle, point: { latitude: retenu.latitude, longitude: retenu.longitude }, libelle: `${nom}${commune}` };
+    }
+  }
+  throw new UserError(
+    `point de départ « ${texte} » introuvable : préciser le département (« Gare de Lyon (75) »), ` +
+      'donner une adresse complète ou « lat,lon »',
+  );
 }
 
 // ── Calcul avec cache ───────────────────────────────────────────────────────

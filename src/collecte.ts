@@ -1,17 +1,17 @@
 // Collecte quotidienne (PLAN §4) : recherches → cartes → détail de chaque offre → géocodage → base, file « à résumer »
 // → trajets. --dry-run : liste seule, comparée à la base ouverte en lecture seule, rien n'est écrit ni téléchargé au-delà
-// des listes (ni géocodage, ni filtre commune + rayon, ni trajets).
+// des listes (ni géocodage, ni trajets).
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { chemins, lireRecherches, type Recherche } from './config.ts';
 import { Depot } from './db/depot.ts';
-import type { ChampsCode, Geo, Statut } from './db/schema.ts';
+import type { ChampsCode, Statut } from './db/schema.ts';
 import { ecrireDiagnostic, sourceMemorisante } from './diagnostic.ts';
 import { CasseError, codeDeSortie, UserError } from './erreurs.ts';
 import { Geocodeur, sourceIgn, type SourceGeocodage } from './geo/geocodage.ts';
-import { distanceKm, type Lieu, type Point } from './geo/lieux.ts';
-import type { BilanTrajets, FournisseurTrajet } from './geo/trajets.ts';
-import { formaterTrajets, trajetsDuJour } from './trajets.ts';
+import type { Lieu } from './geo/lieux.ts';
+import type { FournisseurTrajet } from './geo/trajets.ts';
+import { formaterTrajetsRecherches, trajetsDuJour, type BilanTrajetsRecherche } from './trajets.ts';
 import { dossierPrive, ecrireFichierPrive } from './securite/fichiers.ts';
 import { lireDetail, type Detail } from './scraper/detail.ts';
 import { parcourirRecherche, type Carte, type ResultatRecherche } from './scraper/liste.ts';
@@ -30,8 +30,6 @@ export interface Ecriture {
   cloturees: string[];
   /** Offre listée mais page retirée avant le téléchargement du détail. */
   pages_retirees: string[];
-  /** Hors du rayon de toutes ses recherches : ni enregistrée, ni résumée. */
-  hors_zone: string[];
   /** Aucun mot-clé en mots entiers (recherches `mots_exacts`) : ni enregistrée, ni résumée. */
   hors_mots_cles: string[];
   a_resumer: number;
@@ -43,8 +41,6 @@ export interface BilanGeo {
   /** Offres enregistrées sans coordonnées (lieu introuvable ou géocodeur en panne). */
   non_localisees: number;
   panne: string | null;
-  /** Recherches « commune + rayon » non filtrées ce jour (centre impossible à géocoder). */
-  rayons_ignores: string[];
 }
 
 export interface BilanCollecte {
@@ -64,8 +60,8 @@ export interface BilanCollecte {
   ecriture: Ecriture | null;
   /** `null` en --dry-run. */
   geo: BilanGeo | null;
-  /** `null` en --dry-run ou sans adresse de départ (CSP_ORIGINE_TRAJET). */
-  trajets: BilanTrajets | null;
+  /** Un bilan par recherche qui a un point de départ (`depart`) ; `null` en --dry-run. */
+  trajets: BilanTrajetsRecherche[] | null;
 }
 
 export interface OptionsCollecte {
@@ -79,8 +75,6 @@ export interface OptionsCollecte {
   dossierDiagnostics?: string;
   geocodage?: SourceGeocodage;
   fournisseurTrajet?: FournisseurTrajet;
-  /** Adresse de départ ; par défaut CSP_ORIGINE_TRAJET. */
-  origineTrajet?: string;
 }
 
 /** Date du jour à Paris (AAAA-MM-JJ), quel que soit le fuseau de la machine. */
@@ -224,25 +218,21 @@ async function executer(
     verifierResultats(resultats, depot.activesParRecherche());
     const bilan = comparer(resultats, statutsEnBase(depot), options.recherche);
     const geocodeur = new Geocodeur(depot, options.geocodage ?? sourceIgn, jour);
-    const zones = await zonesRecherches(geocodeur, recherches);
     const { ecriture, non_localisees } = await ecrire(depot, source, bilan, {
       jour,
       dossierBrut: options.dossierBrut ?? chemins().brut,
       geocodeur,
-      zones,
       motsExacts: motsExacts(recherches),
     });
     const geo: BilanGeo = {
       appels: geocodeur.appels,
       non_localisees,
       panne: geocodeur.panne,
-      rayons_ignores: [...zones].filter(([, z]) => z === null).map(([nom]) => nom),
     };
-    const trajets = await trajetsDuJour(depot, {
+    const trajets = await trajetsDuJour(depot, recherches, {
       jour,
       geocodage: geocodeur.source,
       fournisseur: options.fournisseurTrajet,
-      origine: options.origineTrajet,
     });
     depot.terminerExecution(execution, {
       fin: maintenant().toISOString(),
@@ -314,33 +304,6 @@ function comparer(
   };
 }
 
-/** Centre et rayon d'une recherche « commune + rayon » ; `null` : centre non géocodé ce jour, pas de filtre. */
-type Zone = { centre: Point; rayon_km: number } | null;
-
-/** Zones des recherches qui ont une commune et un rayon (les autres ne filtrent rien localement). */
-async function zonesRecherches(geocodeur: Geocodeur, recherches: Recherche[]): Promise<Map<string, Zone>> {
-  const zones = new Map<string, Zone>();
-  for (const r of recherches) {
-    const { commune, rayon_km } = r.localisation ?? {};
-    if (commune === undefined || rayon_km === undefined) continue;
-    const centre = await geocodeur.commune(commune);
-    zones.set(r.nom, centre ? { centre, rayon_km } : null);
-  }
-  return zones;
-}
-
-/**
- * Recherches que l'offre satisfait vraiment : une recherche avec rayon ne garde que les offres localisées dans
- * le rayon. Une offre sans coordonnées est gardée (on ne sait pas l'écarter).
- */
-export function recherchesRetenues(noms: string[], zones: Map<string, Zone>, geo: Geo | undefined): string[] {
-  return noms.filter((nom) => {
-    const zone = zones.get(nom);
-    if (!zone || geo?.latitude == null || geo.longitude == null) return true;
-    return distanceKm(zone.centre, { latitude: geo.latitude, longitude: geo.longitude }) <= zone.rayon_km;
-  });
-}
-
 /** Mots-clés exigés en mots entiers, par recherche (seulement celles qui ont `mots_exacts`). */
 export const motsExacts = (recherches: Recherche[]): Map<string, string[]> =>
   new Map(recherches.filter((r) => r.mots_exacts).map((r) => [r.nom, r.mots_cles]));
@@ -368,7 +331,7 @@ const lieuDe = (c: ChampsCode): Lieu => ({
 
 /** Ce qui est arrivé à une offre lors de l'écriture. */
 type Issue = (
-  | { type: 'retiree' | 'hors_zone' | 'hors_mots_cles' | 'inchangee' }
+  | { type: 'retiree' | 'hors_mots_cles' | 'inchangee' }
   | { type: 'nouvelle' | 'modifiee'; republication_de: string | null }
 ) & { id_offre: string; localisee: boolean };
 
@@ -380,7 +343,6 @@ const ECRITURE_VIDE: Ecriture = {
   expirees: [],
   cloturees: [],
   pages_retirees: [],
-  hors_zone: [],
   hors_mots_cles: [],
   a_resumer: 0,
 };
@@ -390,8 +352,6 @@ function cumuler(e: Ecriture, issue: Issue): Ecriture {
   switch (issue.type) {
     case 'retiree':
       return { ...e, pages_retirees: [...e.pages_retirees, issue.id_offre] };
-    case 'hors_zone':
-      return { ...e, hors_zone: [...e.hors_zone, issue.id_offre] };
     case 'hors_mots_cles':
       return { ...e, hors_mots_cles: [...e.hors_mots_cles, issue.id_offre] };
     case 'inchangee':
@@ -413,7 +373,6 @@ interface ContexteEcriture {
   /** Offres en ligne aujourd'hui : une offre identique encore en ligne n'est pas une republication. */
   enLigne: Set<string>;
   geocodeur: Geocodeur;
-  zones: Map<string, Zone>;
   /** Mots-clés des recherches `mots_exacts`, par nom de recherche. */
   motsExacts: Map<string, string[]>;
 }
@@ -434,13 +393,11 @@ async function traiterOffre(depot: Depot, source: SourcePages, carte: CarteVue, 
   // Hors transaction : un appel réseau (le cache répond pour les lieux déjà vus).
   const geo = await ctx.geocodeur.lieu(lieuDe(champs));
   const localisee = geo?.latitude != null;
-  const recherches = recherchesRetenues(parMots, ctx.zones, geo);
-  if (!recherches.length) return { id_offre, type: 'hors_zone', localisee };
   return depot.transaction((): Issue => {
     const evolution = depot.enregistrerOffre(champs, ctx.jour);
     // Géocodeur en panne : les coordonnées déjà connues sont gardées.
     if (geo) depot.poserGeo(id_offre, geo);
-    recherches.forEach((nom) => depot.lierRecherche(nom, id_offre));
+    parMots.forEach((nom) => depot.lierRecherche(nom, id_offre));
     if (evolution === 'inchangee') return { id_offre, type: 'inchangee', localisee };
     const origine =
       evolution === 'nouvelle' && champs.empreinte_identite
@@ -481,7 +438,7 @@ async function ecrire(
     );
   }
   if (bilan.absentes) depot.noterAbsences(bilan.absentes);
-  const enregistrees = issues.filter((i) => !['retiree', 'hors_zone', 'hors_mots_cles'].includes(i.type));
+  const enregistrees = issues.filter((i) => !['retiree', 'hors_mots_cles'].includes(i.type));
   return {
     ecriture: {
       ...issues.reduce(cumuler, ECRITURE_VIDE),
@@ -495,7 +452,6 @@ async function ecrire(
 function formaterGeo(g: BilanGeo): string[] {
   const lignes = [`Géocodage : ${g.appels} appel(s), ${g.non_localisees} offre(s) sans coordonnées`];
   if (g.panne) lignes.push(`  géocodeur en panne (repris au prochain passage) : ${g.panne}`);
-  if (g.rayons_ignores.length) lignes.push(`  rayon non appliqué aujourd'hui : ${g.rayons_ignores.join(', ')}`);
   return lignes;
 }
 
@@ -542,12 +498,11 @@ export function formaterBilan(b: BilanCollecte): string {
     `  absentes : ${absentes}`,
     `  expirées : ${e.expirees.length}`,
     `  clôturées (date limite passée) : ${e.cloturees.length}`,
-    `  hors du rayon (ignorées) : ${e.hors_zone.length}`,
     `  sans les mots-clés exacts (ignorées) : ${e.hors_mots_cles.length}`,
     `À résumer : ${e.a_resumer}`,
   );
   if (b.geo) lignes.push(...formaterGeo(b.geo));
-  lignes.push(b.trajets ? formaterTrajets(b.trajets) : 'Trajets : non calculés (CSP_ORIGINE_TRAJET vide)');
+  if (b.trajets) lignes.push(...formaterTrajetsRecherches(b.trajets));
   if (e.nouvelles.length) lignes.push('', 'Nouvelles :', ...e.nouvelles.flatMap(offre));
   if (e.modifiees.length) lignes.push('', 'Modifiées :', ...e.modifiees.flatMap(offre));
   return lignes.join('\n');
