@@ -19,6 +19,8 @@ export class UserError extends Error {
 export class CasseError extends Error {
   readonly code: number = CODES.casse;
   readonly etape: string;
+  /** Dossier du diagnostic sauvegardé (collecte), affiché avec le message. */
+  diagnostic?: string;
   constructor(etape: string, message: string) {
     super(`[${etape}] ${message}`);
     this.etape = etape;

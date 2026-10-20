@@ -138,6 +138,18 @@ export class Depot {
     });
   }
 
+  /** Nombre d'offres actives par recherche (garde-fou contre une recherche tombée à zéro). */
+  activesParRecherche(): Map<string, number> {
+    const lignes = this.db
+      .select({ nom: recherches_offres.nom_recherche, nb: sql<number>`count(*)` })
+      .from(recherches_offres)
+      .innerJoin(offres, eq(offres.id_offre, recherches_offres.id_offre))
+      .where(eq(offres.statut, 'active'))
+      .groupBy(recherches_offres.nom_recherche)
+      .all();
+    return new Map(lignes.map((l) => [l.nom, Number(l.nb)]));
+  }
+
   /** +1 absence pour les offres non expirées absentes d'une collecte complète. */
   noterAbsences(ids: readonly string[]): void {
     this.transaction(() => {
@@ -224,6 +236,21 @@ export class Depot {
         },
       })
       .run();
+  }
+
+  /** Entrées de la file dont l'offre n'est plus active (expirée, clôturée) depuis avant `date` (`csp purge`). */
+  aResumerPerimes(date: string) {
+    return this.db
+      .select({ id_offre: a_resumer.id_offre, chemin_brut: a_resumer.chemin_brut })
+      .from(a_resumer)
+      .innerJoin(offres, eq(offres.id_offre, a_resumer.id_offre))
+      .where(and(ne(offres.statut, 'active'), lt(a_resumer.date, date), lt(offres.date_derniere_vue, date)))
+      .orderBy(asc(a_resumer.id_offre))
+      .all();
+  }
+
+  retirerAResumer(idOffre: string): void {
+    this.db.delete(a_resumer).where(eq(a_resumer.id_offre, idOffre)).run();
   }
 
   aResumer() {

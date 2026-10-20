@@ -2,17 +2,18 @@ import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
-import { collecte, formaterBilan } from '../collecte.ts';
+import { collecte, formaterBilan, verifierResultats } from '../collecte.ts';
 import type { Recherche } from '../config.ts';
 import { Depot } from '../db/depot.ts';
 import type { ChampsCode } from '../db/schema.ts';
-import { IndisponibleError } from '../erreurs.ts';
+import { IndisponibleError, type CasseError } from '../erreurs.ts';
 import type { Candidat, SourceGeocodage } from '../geo/geocodage.ts';
 import type { FournisseurTrajet } from '../geo/trajets.ts';
 import { lirePageListe } from '../scraper/liste.ts';
 import { PageAbsenteError, type SourcePages } from '../scraper/source.ts';
 import { fixture, pageMinimale } from './outils.ts';
 
+const CARTE = /<div class="fr-card fr-card--offer">[\s\S]*?<\/ul><\/div><\/div><\/div>/;
 const SANS_SUIVANTE = (html: string) => html.replaceAll('fr-pagination__link--next', 'fr-pagination__link--sans-suite');
 
 /** Faux site en mémoire : chemin (sans origine) → HTML ; garde la trace des URL demandées. */
@@ -162,6 +163,7 @@ describe('collecte (écriture)', () => {
     return {
       base: join(dossier, 'csp.sqlite'),
       dossierBrut: join(dossier, 'brut'),
+      dossierDiagnostics: join(dossier, 'diagnostics'),
       lendemain: () => jour++,
       maintenant: () => new Date(`2026-10-${String(jour).padStart(2, '0')}T06:00:00+02:00`),
     };
@@ -316,6 +318,57 @@ describe('collecte (écriture)', () => {
     d.fermer();
   });
 
+  it('sauvegarde le diagnostic d’une casse : étape, sélecteur, URL et HTML de la page, en accès privé', async () => {
+    const ctx = contexte();
+    const cassee = fixture(`detail-${A}`).replaceAll('class="table"', 'class="tableau"');
+    const erreur = await lancer(ctx, site([A], { [A]: cassee }).s).then(
+      () => undefined,
+      (e: CasseError) => e,
+    );
+    const dossier = erreur!.diagnostic!;
+    expect(dossier.startsWith(join(ctx.dossierDiagnostics, '2026-10-19'))).toBe(true);
+    expect(dossier).toMatch(/\/06-00-00-lire-detail$/);
+    expect(statSync(dossier).mode & 0o777).toBe(0o700);
+    const diag = JSON.parse(readFileSync(join(dossier, 'diagnostic.json'), 'utf8'));
+    expect(diag).toMatchObject({ etape: 'lire-detail', html: 'page.html' });
+    expect(diag.message).toContain('tableau des caractéristiques introuvable');
+    expect(diag.url).toMatch(new RegExp(`/offre-emploi/poste-reference-${A}/$`));
+    expect(readFileSync(join(dossier, 'page.html'), 'utf8')).toBe(cassee);
+    expect(statSync(join(dossier, 'page.html')).mode & 0o777).toBe(0o600);
+  });
+
+  it('pas de diagnostic pour une panne réseau (code 3)', async () => {
+    const ctx = contexte();
+    const enPanne: SourcePages = { html: () => Promise.reject(new IndisponibleError('site injoignable')) };
+    await expect(lancer(ctx, enPanne)).rejects.toMatchObject({ code: 3 });
+    expect(existsSync(ctx.dossierDiagnostics)).toBe(false);
+  });
+
+  it('refuse une recherche tombée à zéro qui avait des offres actives, sans rien expirer', async () => {
+    const ctx = contexte();
+    const ids = [A, B, '2025-2136140', 'DEF_30-00069655', 'MEF_2026-32647'];
+    await lancer(ctx, site(ids).s);
+    ctx.lendemain();
+    const vide = source({ '/nos-offres/': fixture('liste-vide') }).s;
+    await expect(lancer(ctx, vide)).rejects.toMatchObject({ code: 2, etape: 'resultat-suspect' });
+    const d = new Depot(ctx.base);
+    expect(d.listerOffres('active')).toHaveLength(5);
+    expect(d.listerOffres().every((o) => o.absences_consecutives === 0)).toBe(true);
+    d.fermer();
+  });
+
+  it('refuse une collecte où plus de 20 % des pages détail sont introuvables', async () => {
+    const ctx = contexte();
+    const ids = Array.from({ length: 10 }, (_, i) => `X-${i}`);
+    const cartes = ids.map((id) => pageMinimale(id, false).match(CARTE)![0]);
+    const liste = pageMinimale('X', false).replace(CARTE, cartes.join('\n'));
+    const s: SourcePages = {
+      html: (url) =>
+        url.pathname === '/nos-offres/' ? Promise.resolve(liste) : Promise.reject(new PageAbsenteError('HTTP 404')),
+    };
+    await expect(lancer(ctx, s)).rejects.toMatchObject({ code: 2, etape: 'lire-detail' });
+  });
+
   it('repère une offre republiée sous un nouvel identifiant', async () => {
     const ctx = contexte();
     await lancer(ctx, site([A]).s);
@@ -372,5 +425,14 @@ describe('collecte (écriture)', () => {
     const d = new Depot(ctx.base);
     expect(d.derniereExecution()).toMatchObject({ statut: 'complete', code_sortie: 0 });
     d.fermer();
+  });
+});
+
+describe('garde-fou des résultats', () => {
+  const resultat = (nom: string, total: number) => ({ nom, pages: 1, total, cartes: [], ecartees: 0, tronquee: false });
+  it('ne s’alarme qu’à partir de 5 offres actives perdues d’un coup', () => {
+    expect(() => verifierResultats([resultat('a', 0)], new Map([['a', 4]]))).not.toThrow();
+    expect(() => verifierResultats([resultat('a', 3)], new Map([['a', 50]]))).not.toThrow();
+    expect(() => verifierResultats([resultat('a', 0)], new Map([['a', 5]]))).toThrow('0 offre annoncée');
   });
 });

@@ -170,9 +170,14 @@ describe('csp collecte', () => {
   it('sort en code 2 avec l’étape quand la page a changé de structure', async () => {
     const home = homeComplet();
     writeFileSync(join(home, 'recherches.yaml'), 'recherches:\n  - nom: c\n    categories: [C]\n');
-    expect(await csp(home, 'collecte', '--dry-run')).toMatchObject({
-      code: 2,
-      sortie: expect.stringContaining('[lire-compteur]'),
+    const r = await csp(home, 'collecte', '--dry-run');
+    expect(r).toMatchObject({ code: 2, sortie: expect.stringContaining('[lire-compteur]') });
+    const dossier = /Diagnostic : (.+)/.exec(r.sortie)?.[1];
+    expect(dossier?.startsWith(join(home, 'diagnostics'))).toBe(true);
+    expect(existsSync(join(dossier!, 'page.html'))).toBe(true);
+    expect(await csp(home, 'purge', '--dry-run')).toMatchObject({
+      code: 1,
+      sortie: expect.stringContaining('Base absente'),
     });
   });
 

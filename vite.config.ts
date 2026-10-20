@@ -10,7 +10,7 @@ export default defineConfig({
   },
   test: {
     include: ['src/**/*.test.ts'],
-    setupFiles: ['src/test/reseau-local.ts'],
+    setupFiles: ['src/test/isolation.ts'],
     testTimeout: 30_000, // tests de bout en bout : binaire lancé en sous-processus
   },
   run: { cache: true },
