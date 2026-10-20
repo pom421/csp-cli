@@ -6,7 +6,7 @@
 useDefault = true
 
 # Adresse de départ des trajets (donnée personnelle) : ne doit exister que dans
-# ~/.config/csp-veille/.env. Toute valeur autre que l'exemple est signalée.
+# ~/.config/csp-cli/.env. Toute valeur autre que l'exemple est signalée.
 [[rules]]
 id = "csp-origine-trajet"
 description = "Adresse de départ (CSP_ORIGINE_TRAJET) hors du .env local"
@@ -17,7 +17,7 @@ keywords = ["csp_origine_trajet"]
 regexTarget = "match"
 regexes = ['''adresse de départ''', '''process\.env''']
 
-# Clé du fournisseur de résumés (Anthropic ou Albert) : uniquement dans ~/.config/csp-veille/.env.
+# Clé du fournisseur de résumés (Anthropic ou Albert) : uniquement dans ~/.config/csp-cli/.env.
 # Les clés Anthropic (sk-ant-…) sont aussi couvertes par les règles par défaut ; le format des clés Albert ne l'est pas.
 [[rules]]
 id = "csp-llm-cle"

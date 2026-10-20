@@ -1,4 +1,4 @@
-# À copier dans ~/.config/csp-veille/recherches.yaml et adapter.
+# À copier dans ~/.config/csp-cli/recherches.yaml et adapter.
 # Les valeurs lisibles (A, FPE, titulaire…) sont traduites en identifiants du site par le code.
 recherches:
   - nom: numerique-orleans

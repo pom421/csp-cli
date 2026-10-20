@@ -1,6 +1,6 @@
 // Chargé avant chaque fichier de test, pour qu'un test qui oublie un réglage échoue au lieu de toucher au réel :
 // - aucune requête ne sort de la machine (ni le site, ni IGN, ni Transitous, ni les API LLM) ;
-// - les données locales vont dans un dossier temporaire, jamais dans ~/.config/csp-veille.
+// - les données locales vont dans un dossier temporaire, jamais dans ~/.config/csp-cli.
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

@@ -9,7 +9,7 @@ import { DEPARTEMENTS, REGIONS } from './scraper/referentiel.ts';
 
 /** Données hors du dépôt : le binaire est lancé depuis n'importe quel dossier. */
 export function dossierCsp(): string {
-  return resolve(process.env.CSP_HOME || join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'csp-veille'));
+  return resolve(process.env.CSP_HOME || join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'csp-cli'));
 }
 
 export function chemins(home = dossierCsp()) {

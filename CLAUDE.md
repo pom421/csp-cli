@@ -1,4 +1,4 @@
-# csp-veille — consignes pour Claude
+# csp-cli — consignes pour Claude
 
 Veille quotidienne des offres de Choisir le service public. Plan : [PLAN.md](PLAN.md). Cadre juridique : [CONFORMITE.md](CONFORMITE.md).
 Relevé du site : [docs/reconnaissance.md](docs/reconnaissance.md).
@@ -44,7 +44,7 @@ Relevé du site : [docs/reconnaissance.md](docs/reconnaissance.md).
 
 ## Réparation (code 2)
 
-1. Lire le diagnostic (`~/.config/csp-veille/diagnostics/<date>/`).
+1. Lire le diagnostic (`~/.config/csp-cli/diagnostics/<date>/`).
 2. Inspecter le site avec le navigateur intégré.
 3. Corriger les sélecteurs (un seul endroit : `src/scraper/selecteurs.ts`), ajouter la page en fixture (`src/test/fixtures/`, contacts
    pseudonymisés).

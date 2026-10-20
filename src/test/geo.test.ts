@@ -324,7 +324,7 @@ describe('services réels contre un faux serveur', () => {
     const url = new URL(serveur.requetes[0].url, serveur.url);
     expect(url.pathname).toBe('/geocodage/search');
     expect(Object.fromEntries(url.searchParams)).toEqual({ q: 'Orléans', limit: '10', type: 'municipality' });
-    expect(serveur.requetes[0].userAgent).toMatch(/^csp-veille\/.*https:\/\/github\.com\//);
+    expect(serveur.requetes[0].userAgent).toMatch(/^csp-cli\/.*https:\/\/github\.com\//);
   });
 
   it('interroge Transitous en heure UTC et classe une erreur serveur en panne', async () => {
