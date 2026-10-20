@@ -15,7 +15,7 @@ import { formaterTrajets, trajetsDuJour } from './trajets.ts';
 import { dossierPrive, ecrireFichierPrive } from './securite/fichiers.ts';
 import { lireDetail, type Detail } from './scraper/detail.ts';
 import { parcourirRecherche, type Carte, type ResultatRecherche } from './scraper/liste.ts';
-import { empreinteIdentite } from './scraper/normalisation.ts';
+import { contientMotExact, empreinteIdentite } from './scraper/normalisation.ts';
 import { PageAbsenteError, sourceHttp, type SourcePages } from './scraper/source.ts';
 
 /** Absences consécutives avant de considérer une offre expirée (PLAN §5). */
@@ -32,6 +32,8 @@ export interface Ecriture {
   pages_retirees: string[];
   /** Hors du rayon de toutes ses recherches : ni enregistrée, ni résumée. */
   hors_zone: string[];
+  /** Aucun mot-clé en mots entiers (recherches `mots_exacts`) : ni enregistrée, ni résumée. */
+  hors_mots_cles: string[];
   a_resumer: number;
 }
 
@@ -202,7 +204,7 @@ async function executer(
   base: string,
 ): Promise<BilanCollecte> {
   if (options.dryRun) {
-    const resultats = await parcourirToutes(source, recherches);
+    const resultats = filtrerTitres(await parcourirToutes(source, recherches), motsExacts(recherches));
     const apercu = { ecriture: null, geo: null, trajets: null };
     if (!existsSync(base)) return { ...comparer(resultats, new Map(), options.recherche), ...apercu };
     const depot = new Depot(base, { lectureSeule: true });
@@ -228,6 +230,7 @@ async function executer(
       dossierBrut: options.dossierBrut ?? chemins().brut,
       geocodeur,
       zones,
+      motsExacts: motsExacts(recherches),
     });
     const geo: BilanGeo = {
       appels: geocodeur.appels,
@@ -338,6 +341,24 @@ export function recherchesRetenues(noms: string[], zones: Map<string, Zone>, geo
   });
 }
 
+/** Mots-clés exigés en mots entiers, par recherche (seulement celles qui ont `mots_exacts`). */
+export const motsExacts = (recherches: Recherche[]): Map<string, string[]> =>
+  new Map(recherches.filter((r) => r.mots_exacts).map((r) => [r.nom, r.mots_cles]));
+
+/** Recherches dont l'offre contient au moins un mot-clé en mots entiers (les autres recherches ne filtrent rien). */
+export function recherchesParMots(noms: string[], mots: Map<string, string[]>, texte: string): string[] {
+  return noms.filter((nom) => mots.get(nom)?.some((m) => contientMotExact(texte, m)) ?? true);
+}
+
+/** Aperçu (--dry-run) : le texte des offres n'est pas lu, le filtre `mots_exacts` ne voit que le titre des cartes. */
+function filtrerTitres(resultats: ResultatRecherche[], mots: Map<string, string[]>): ResultatRecherche[] {
+  return resultats.map((r) => {
+    if (!mots.has(r.nom)) return r;
+    const cartes = r.cartes.filter((c) => recherchesParMots([r.nom], mots, c.titre).length);
+    return { ...r, cartes, ecartees_titre: r.cartes.length - cartes.length };
+  });
+}
+
 const lieuDe = (c: ChampsCode): Lieu => ({
   adresse: c.adresse,
   code_postal: c.code_postal,
@@ -347,7 +368,7 @@ const lieuDe = (c: ChampsCode): Lieu => ({
 
 /** Ce qui est arrivé à une offre lors de l'écriture. */
 type Issue = (
-  | { type: 'retiree' | 'hors_zone' | 'inchangee' }
+  | { type: 'retiree' | 'hors_zone' | 'hors_mots_cles' | 'inchangee' }
   | { type: 'nouvelle' | 'modifiee'; republication_de: string | null }
 ) & { id_offre: string; localisee: boolean };
 
@@ -360,6 +381,7 @@ const ECRITURE_VIDE: Ecriture = {
   cloturees: [],
   pages_retirees: [],
   hors_zone: [],
+  hors_mots_cles: [],
   a_resumer: 0,
 };
 
@@ -370,6 +392,8 @@ function cumuler(e: Ecriture, issue: Issue): Ecriture {
       return { ...e, pages_retirees: [...e.pages_retirees, issue.id_offre] };
     case 'hors_zone':
       return { ...e, hors_zone: [...e.hors_zone, issue.id_offre] };
+    case 'hors_mots_cles':
+      return { ...e, hors_mots_cles: [...e.hors_mots_cles, issue.id_offre] };
     case 'inchangee':
       return { ...e, inchangees: e.inchangees + 1 };
     case 'nouvelle':
@@ -390,6 +414,8 @@ interface ContexteEcriture {
   enLigne: Set<string>;
   geocodeur: Geocodeur;
   zones: Map<string, Zone>;
+  /** Mots-clés des recherches `mots_exacts`, par nom de recherche. */
+  motsExacts: Map<string, string[]>;
 }
 
 /** Télécharge le détail d'une offre et l'enregistre, en une transaction (un arrêt laisse les précédentes complètes). */
@@ -403,10 +429,12 @@ async function traiterOffre(depot: Depot, source: SourcePages, carte: CarteVue, 
     throw err;
   }
   const champs = champsOffre(carte, detail);
+  const parMots = recherchesParMots(carte.recherches, ctx.motsExacts, `${detail.titre}\n${detail.texte_brut}`);
+  if (!parMots.length) return { id_offre, type: 'hors_mots_cles', localisee: false };
   // Hors transaction : un appel réseau (le cache répond pour les lieux déjà vus).
   const geo = await ctx.geocodeur.lieu(lieuDe(champs));
   const localisee = geo?.latitude != null;
-  const recherches = recherchesRetenues(carte.recherches, ctx.zones, geo);
+  const recherches = recherchesRetenues(parMots, ctx.zones, geo);
   if (!recherches.length) return { id_offre, type: 'hors_zone', localisee };
   return depot.transaction((): Issue => {
     const evolution = depot.enregistrerOffre(champs, ctx.jour);
@@ -453,7 +481,7 @@ async function ecrire(
     );
   }
   if (bilan.absentes) depot.noterAbsences(bilan.absentes);
-  const enregistrees = issues.filter((i) => i.type !== 'retiree' && i.type !== 'hors_zone');
+  const enregistrees = issues.filter((i) => !['retiree', 'hors_zone', 'hors_mots_cles'].includes(i.type));
   return {
     ecriture: {
       ...issues.reduce(cumuler, ECRITURE_VIDE),
@@ -475,7 +503,11 @@ function formaterGeo(g: BilanGeo): string[] {
 export function formaterBilan(b: BilanCollecte): string {
   const lignes = ['Recherches :'];
   for (const r of b.recherches) {
-    const ecart = r.ecartees ? `, ${r.ecartees} écartée(s) par le versant` : '';
+    const ecart =
+      (r.ecartees ? `, ${r.ecartees} écartée(s) par le versant` : '') +
+      (r.ecartees_titre
+        ? `, ${r.ecartees_titre} sans les mots-clés dans le titre (aperçu : le texte des offres sera vérifié à la collecte)`
+        : '');
     const plafond = r.tronquee ? ' — PLAFOND ATTEINT, résultats tronqués' : '';
     lignes.push(`  ${r.nom} : ${r.total} annoncée(s), ${r.pages} page(s) lue(s)${ecart}${plafond}`);
   }
@@ -511,6 +543,7 @@ export function formaterBilan(b: BilanCollecte): string {
     `  expirées : ${e.expirees.length}`,
     `  clôturées (date limite passée) : ${e.cloturees.length}`,
     `  hors du rayon (ignorées) : ${e.hors_zone.length}`,
+    `  sans les mots-clés exacts (ignorées) : ${e.hors_mots_cles.length}`,
     `À résumer : ${e.a_resumer}`,
   );
   if (b.geo) lignes.push(...formaterGeo(b.geo));

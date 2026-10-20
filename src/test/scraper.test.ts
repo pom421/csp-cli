@@ -5,6 +5,7 @@ import { lireDetail, retirerCoordonnees } from '../scraper/detail.ts';
 import { lirePageListe } from '../scraper/liste.ts';
 import {
   cleComparaison,
+  contientMotExact,
   dateFrancaise,
   dateNumerique,
   empreinte,
@@ -145,6 +146,26 @@ describe('page de liste', () => {
       'https://pirate.exemple.com/offre-emploi/redacteur',
     );
     expect(lirePageListe(html).cartes[0].url).toMatch(/^https:\/\/choisirleservicepublic\.gouv\.fr\/offre-emploi\//);
+  });
+});
+
+describe('mots exacts', () => {
+  it.each([
+    ['Développeur Frontend JavaScript / REACT F/H', true],
+    ['Développeur(se) Full Stack (PHP, Symfony, Java, Python, Node.Js, React)', true],
+    ['Chef de la section achats réactifs', false],
+    ['Recherche en Reactive Synthesis', false],
+    ['adjoint à la cheffe d’unité REACH, CLP', false],
+    ['Sens de la réactivité attendu', false],
+  ])('« react » dans %j : %s', (texte, attendu) => {
+    expect(contientMotExact(texte, 'react')).toBe(attendu);
+  });
+
+  it('cherche une expression entière, accents et casse ignorés', () => {
+    expect(contientMotExact('Chef de projet numérique (H/F)', 'chef de projet numerique')).toBe(true);
+    expect(contientMotExact('Chef de projet informatique', 'chef de projet numérique')).toBe(false);
+    expect(contientMotExact('Développeur Node.js', 'node.js')).toBe(true);
+    expect(contientMotExact('n’importe quoi', '  ')).toBe(false);
   });
 });
 

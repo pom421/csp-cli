@@ -114,6 +114,8 @@ export interface ResultatRecherche {
   cartes: Carte[];
   /** Cartes écartées par le filtre local de versant. */
   ecartees: number;
+  /** --dry-run avec `mots_exacts` : cartes dont le titre ne contient aucun mot-clé (le texte n'est pas lu en aperçu). */
+  ecartees_titre?: number;
   /** Plafond de pages atteint : des offres manquent, la collecte n'est pas complète. */
   tronquee: boolean;
 }
