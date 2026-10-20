@@ -61,3 +61,15 @@ Relevé du site : [docs/reconnaissance.md](docs/reconnaissance.md).
 - drizzle-kit recrée parfois une table (`DROP TABLE` + copie) : avec les clés étrangères actives, les `ON DELETE CASCADE` videraient
   les tables liées. Préférer `ALTER TABLE … ADD` écrit à la main ; le test « migrations » vérifie que les données survivent.
 - Fichiers locaux en 0600, dossiers en 0700 (`src/securite/fichiers.ts`).
+
+## Façon de travailler
+
+- Répondre **en français**. Rapporter les résultats (ce qui marche, ce qui reste, ce qui n'est pas vérifié), pas l'outillage
+  interne.
+- Git : une branche par sujet, PR **jamais en brouillon**, commits et PR en français, sans ligne d'attribution.
+- Merger **uniquement sur demande explicite** du propriétaire, après CI verte (réparation de casse : ne jamais merger).
+- Lancer l'outil avec `vp run csp …` : les scripts ne sont jamais mis en cache (un cache rejouerait un bilan sans rien
+  exécuter) ; seul `vp run ready` l'est.
+- Vrai site : vérification réelle ponctuelle et sobre (`--dry-run`, quelques pages), jamais plus d'une collecte complète
+  par jour. Les tests ne sortent jamais de la machine (`src/test/isolation.ts` : réseau local seul, `CSP_HOME` temporaire).
+- Données locales : `~/.config/csp-cli` (`.env` et `recherches.yaml` en 0600 : nommer le `.env`, le motif `*` l'ignore).
