@@ -14,8 +14,9 @@ export interface Lieu {
 /**
  * `adresse` : voie et numéro. `mairie` : la mairie de la commune, point plus représentatif que le centre
  * géométrique (souvent loin de tout arrêt de transport). `commune` : centre de la commune, en dernier recours.
+ * `poi` : point d'intérêt quelconque (gare, station), pour les points de départ des trajets.
  */
-export type Mode = 'adresse' | 'mairie' | 'commune';
+export type Mode = 'adresse' | 'mairie' | 'commune' | 'poi';
 
 export interface Requete {
   q: string;
@@ -87,15 +88,6 @@ export function requetesLieu(lieu: Lieu): Requete[] {
 /** Clé du cache : deux offres au même lieu (même texte, même département) → un seul géocodage. */
 export const cleLieu = (lieu: Lieu): string =>
   [lieu.adresse, lieu.code_postal, lieu.commune, lieu.departement].map((p) => cleComparaison(p ?? '')).join('|');
-
-/** Distance à vol d'oiseau en kilomètres (formule de haversine). */
-export function distanceKm(a: Point, b: Point): number {
-  const rad = (d: number) => (d * Math.PI) / 180;
-  const dLat = rad(b.latitude - a.latitude);
-  const dLon = rad(b.longitude - a.longitude);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.latitude)) * Math.cos(rad(b.latitude)) * Math.sin(dLon / 2) ** 2;
-  return 2 * 6371 * Math.asin(Math.sqrt(h));
-}
 
 export interface Point {
   latitude: number;

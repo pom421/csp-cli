@@ -138,6 +138,18 @@ export class Depot {
     });
   }
 
+  /** Offres actives liées à une recherche (trajets depuis son point de départ). */
+  offresActivesDe(nomRecherche: string): Offre[] {
+    return this.db
+      .select({ offre: offres })
+      .from(offres)
+      .innerJoin(recherches_offres, eq(recherches_offres.id_offre, offres.id_offre))
+      .where(and(eq(recherches_offres.nom_recherche, nomRecherche), eq(offres.statut, 'active')))
+      .orderBy(asc(offres.id_offre))
+      .all()
+      .map((l) => l.offre);
+  }
+
   /** Nombre d'offres actives par recherche (garde-fou contre une recherche tombée à zéro). */
   activesParRecherche(): Map<string, number> {
     const lignes = this.db

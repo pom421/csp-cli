@@ -50,19 +50,18 @@ export const RechercheSchema = z
      * que si l'un des mots-clés figure en mots entiers dans son titre ou son texte (filtre local, après lecture du détail).
      */
     mots_exacts: z.boolean().optional(),
+    // Filtrés par le site.
     localisation: z
       .strictObject({
-        // Filtrés par le site :
         departements: z.array(z.enum(Object.keys(DEPARTEMENTS) as [string, ...string[]])).optional(),
         regions: z.array(z.enum(Object.keys(REGIONS) as [string, ...string[]])).optional(),
-        // Filtrés localement après géocodage (phase 5) : le filtre géographique du site ne marche pas par URL.
-        commune: texte.optional(),
-        rayon_km: z.number().positive().max(200).optional(),
-      })
-      .refine((l) => (l.commune === undefined) === (l.rayon_km === undefined), {
-        message: 'commune et rayon_km vont ensemble',
       })
       .optional(),
+    /**
+     * Point de départ des trajets de cette recherche : lieu (« Gare d'Austerlitz », « Gare de Lyon (75) » pour lever
+     * une ambiguïté), adresse, ou « lat,lon ». Absent : pas de trajets pour cette recherche.
+     */
+    depart: texte.optional(),
     teletravail: z.boolean().optional(),
     management: z.boolean().optional(),
     categories: z.array(z.enum(['A+', 'A', 'B', 'C'])).optional(),

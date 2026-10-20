@@ -58,10 +58,8 @@ describe('URL de recherche', () => {
     );
   });
 
-  it('commune et rayon ne vont pas dans l’URL (filtrage local)', () => {
-    expect(urlRecherche(recherche({ localisation: { commune: 'Orléans', rayon_km: 30 } })).pathname).toBe(
-      '/nos-offres/',
-    );
+  it('le point de départ ne va pas dans l’URL (il ne sert qu’aux trajets)', () => {
+    expect(urlRecherche(recherche({ depart: "Gare d'Orléans" })).pathname).toBe('/nos-offres/');
   });
 
   it.each([0, 201, 1.5])('refuse la page %s', (page) => {

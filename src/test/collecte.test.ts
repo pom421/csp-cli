@@ -190,7 +190,7 @@ describe('collecte (écriture)', () => {
   }
 
   const commune = (latitude: number, longitude: number, nom: string): Candidat[] => [
-    { latitude, longitude, type: 'municipality', score: 0.95, departement: '45', commune: nom },
+    { latitude, longitude, type: 'municipality', score: 0.95, departement: '45', commune: nom, nom },
   ];
   const communes: Record<string, Candidat[]> = {
     Orléans: commune(47.9029, 1.9093, 'Orléans'),
@@ -203,7 +203,7 @@ describe('collecte (écriture)', () => {
   };
 
   const lancer = (ctx: ReturnType<typeof contexte>, s: SourcePages, r: Partial<Parameters<typeof collecte>[0]> = {}) =>
-    collecte({ dryRun: false, source: s, recherches: [rech('essai')], geocodage, origineTrajet: '', ...ctx, ...r });
+    collecte({ dryRun: false, source: s, recherches: [rech('essai')], geocodage, ...ctx, ...r });
 
   it('enregistre les nouvelles offres, écrit les textes bruts en 0600 sans coordonnées, met la file à jour', async () => {
     const ctx = contexte();
@@ -402,7 +402,7 @@ describe('collecte (écriture)', () => {
     const b = await lancer(ctx, site([N], { [N]: copie }).s);
     expect(b.ecriture!.republications).toEqual([{ id_offre: N, republication_de: A }]);
   });
-  it('localise les offres et calcule les trajets depuis l’adresse de départ', async () => {
+  it('localise les offres et calcule les trajets depuis le point de départ de chaque recherche', async () => {
     const ctx = contexte();
     const appels: string[] = [];
     const fournisseurTrajet: FournisseurTrajet = {
@@ -412,14 +412,23 @@ describe('collecte (écriture)', () => {
         return { duree_min: 25, nb_correspondances: 0 };
       },
     };
-    const b = await lancer(ctx, site([A, B]).s, { fournisseurTrajet, origineTrajet: '47.85, 1.92' });
-    expect(b.geo).toMatchObject({ non_localisees: 0, panne: null, rayons_ignores: [] });
-    expect(b.trajets).toMatchObject({ calcules: 2, non_localisees: 0, panne: null });
+    const recherches = [rech('essai', { depart: '47.85, 1.92' }), rech('sans-depart')];
+    const b = await lancer(ctx, sansFiltres(site([A, B]).s), { fournisseurTrajet, recherches });
+    expect(b.geo).toMatchObject({ non_localisees: 0, panne: null });
+    expect(b.trajets).toEqual([
+      expect.objectContaining({
+        recherche: 'essai',
+        depart: '47.85, 1.92',
+        calcules: 2,
+        non_localisees: 0,
+        panne: null,
+      }),
+    ]);
     expect(appels.sort()).toEqual(['43.7', '47.9029']);
     const d = new Depot(ctx.base);
     expect(d.obtenirOffre(B)).toMatchObject({ latitude: 47.9029, longitude: 1.9093, precision_geo: 'commune' });
     d.fermer();
-    expect(formaterBilan(b)).toContain('Trajets (faux) : 2 calculé(s)');
+    expect(formaterBilan(b)).toContain('essai, depuis 47.85, 1.92 : 2 calculé(s)');
   });
 
   it('mots_exacts : ne garde que les offres qui contiennent un mot-clé en mots entiers, titre ou texte', async () => {
@@ -445,36 +454,27 @@ describe('collecte (écriture)', () => {
     d.fermer();
   });
 
-  it('adresse de départ introuvable : collecte réussie, trajets signalés comme non calculés', async () => {
+  it('point de départ introuvable : collecte réussie, trajets signalés comme non calculés', async () => {
     const ctx = contexte();
-    const b = await lancer(ctx, site([B]).s, { origineTrajet: 'adresse de départ' });
+    const b = await lancer(ctx, site([B]).s, { recherches: [rech('essai', { depart: 'Nulle part' })] });
     expect(b.ecriture).toMatchObject({ nouvelles: [B] });
-    expect(b.trajets).toMatchObject({ calcules: 0, panne: expect.stringContaining('adresse introuvable') });
+    expect(b.trajets).toEqual([
+      expect.objectContaining({ depart: null, calcules: 0, panne: expect.stringContaining('introuvable') }),
+    ]);
     const d = new Depot(ctx.base);
     expect(d.derniereExecution()).toMatchObject({ statut: 'complete', code_sortie: 0 });
     d.fermer();
   });
 
-  it('écarte les offres hors du rayon : ni enregistrées, ni résumées', async () => {
-    const ctx = contexte();
-    const recherches = [rech('essai', { localisation: { commune: 'Orléans', rayon_km: 30 } })];
-    const b = await lancer(ctx, site([A, B]).s, { recherches });
-    expect(b.ecriture).toMatchObject({ nouvelles: [B], hors_zone: [A], a_resumer: 1 });
-    const d = new Depot(ctx.base);
-    expect(d.obtenirOffre(A)).toBeUndefined();
-    d.fermer();
-  });
-
-  it('géocodeur en panne : offres enregistrées sans coordonnées, rayon non appliqué, collecte réussie', async () => {
+  it('géocodeur en panne : offres enregistrées sans coordonnées, collecte réussie', async () => {
     const ctx = contexte();
     const enPanne: SourceGeocodage = {
       nom: 'faux',
       chercher: () => Promise.reject(new IndisponibleError('géocodeur injoignable')),
     };
-    const recherches = [rech('essai', { localisation: { commune: 'Orléans', rayon_km: 30 } })];
-    const b = await lancer(ctx, site([A, B]).s, { recherches, geocodage: enPanne });
-    expect(b.ecriture).toMatchObject({ nouvelles: [A, B], hors_zone: [] });
-    expect(b.geo).toMatchObject({ non_localisees: 2, panne: 'géocodeur injoignable', rayons_ignores: ['essai'] });
+    const b = await lancer(ctx, site([A, B]).s, { geocodage: enPanne });
+    expect(b.ecriture).toMatchObject({ nouvelles: [A, B] });
+    expect(b.geo).toMatchObject({ non_localisees: 2, panne: 'géocodeur injoignable' });
     const d = new Depot(ctx.base);
     expect(d.derniereExecution()).toMatchObject({ statut: 'complete', code_sortie: 0 });
     d.fermer();

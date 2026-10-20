@@ -2,7 +2,6 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
-import { recherchesRetenues } from '../collecte.ts';
 import { Depot } from '../db/depot.ts';
 import type { ChampsCode } from '../db/schema.ts';
 import { IndisponibleError } from '../erreurs.ts';
@@ -11,7 +10,6 @@ import {
   cleLieu,
   communeApresPreposition,
   communeProbable,
-  distanceKm,
   nettoyer,
   partieAdresse,
   requetesLieu,
@@ -23,7 +21,7 @@ import {
   cleDestination,
   instantParis,
   jourReference,
-  origineTrajet,
+  pointDeDepart,
   trajetEnCache,
   type FournisseurTrajet,
 } from '../geo/trajets.ts';
@@ -84,12 +82,6 @@ describe('lieux → requêtes de géocodage', () => {
     expect(cleLieu(lieu('75 RUE DU PARC 45000 ORLEANS'))).toBe(cleLieu(lieu('75 rue du Parc 45000 Orléans')));
     expect(cleLieu(lieu('Billy', { departement: '41' }))).not.toBe(cleLieu(lieu('Billy', { departement: '03' })));
   });
-
-  it('calcule une distance à vol d’oiseau', () => {
-    expect(distanceKm(ORLEANS, BLOIS)).toBeGreaterThan(50);
-    expect(distanceKm(ORLEANS, BLOIS)).toBeLessThan(60);
-    expect(distanceKm(ORLEANS, ORLEANS)).toBe(0);
-  });
 });
 
 const candidat = (c: Partial<Candidat>): Candidat => ({
@@ -98,6 +90,7 @@ const candidat = (c: Partial<Candidat>): Candidat => ({
   score: 0.9,
   departement: '45',
   commune: 'Orléans',
+  nom: null,
   ...c,
 });
 
@@ -204,38 +197,6 @@ describe('géocodeur', () => {
     expect(requetes).toEqual(['mairie:Orléans']);
     expect(depot.lireGeocodage(cleLieu(lieu('Orléans')))).toBeUndefined();
   });
-
-  it('géocode le centre d’une recherche, département entre parenthèses compris', async () => {
-    const { source } = fauxGeocodage({
-      Billy: [candidat({ departement: '03' }), candidat({ latitude: 47.3, departement: '41' })],
-    });
-    const g = new Geocodeur(depot, source, '2026-10-20');
-    expect(await g.commune('Billy (41)')).toMatchObject({ latitude: 47.3 });
-    await expect(g.commune('Introuvable')).rejects.toThrow('Commune introuvable');
-  });
-});
-
-describe('filtre commune + rayon', () => {
-  const zones = new Map([
-    ['orleans-30', { centre: ORLEANS, rayon_km: 30 }],
-    ['sans-centre', null],
-  ]);
-  const geo = (p: typeof ORLEANS) => ({ ...p, precision_geo: 'commune' as const });
-
-  it('garde les offres dans le rayon, écarte les autres', () => {
-    expect(recherchesRetenues(['orleans-30'], zones, geo(OLIVET))).toEqual(['orleans-30']);
-    expect(recherchesRetenues(['orleans-30'], zones, geo(BLOIS))).toEqual([]);
-  });
-
-  it('garde une offre non localisée, et toute offre des recherches sans rayon', () => {
-    const inconnu = { latitude: null, longitude: null, precision_geo: null };
-    expect(recherchesRetenues(['orleans-30'], zones, inconnu)).toEqual(['orleans-30']);
-    expect(recherchesRetenues(['orleans-30'], zones, undefined)).toEqual(['orleans-30']);
-    expect(recherchesRetenues(['autre', 'sans-centre', 'orleans-30'], zones, geo(BLOIS))).toEqual([
-      'autre',
-      'sans-centre',
-    ]);
-  });
 });
 
 describe('date et heure de référence', () => {
@@ -320,7 +281,9 @@ describe('services réels contre un faux serveur', () => {
     process.env.CSP_GEOCODAGE_URL = serveur.url;
     process.env.CSP_DELAI_MS = '0';
     const c = await sourceIgn.chercher('Orléans', 'commune');
-    expect(c).toEqual([{ ...ORLEANS, type: 'municipality', score: 0.96, departement: '45', commune: 'Orléans' }]);
+    expect(c).toEqual([
+      { ...ORLEANS, type: 'municipality', score: 0.96, departement: '45', commune: 'Orléans', nom: null },
+    ]);
     const url = new URL(serveur.requetes[0].url, serveur.url);
     expect(url.pathname).toBe('/geocodage/search');
     expect(Object.fromEntries(url.searchParams)).toEqual({ q: 'Orléans', limit: '10', type: 'municipality' });
@@ -350,28 +313,61 @@ describe('services réels contre un faux serveur', () => {
   });
 });
 
-describe('origine du trajet', () => {
+describe('point de départ', () => {
   it('accepte des coordonnées sans appeler le géocodeur', async () => {
     const { source, requetes } = fauxGeocodage({});
-    expect(await origineTrajet(source, '47.9, 1.91')).toMatchObject({ point: { latitude: 47.9, longitude: 1.91 } });
+    expect(await pointDeDepart(source, '47.9, 1.91')).toMatchObject({ point: { latitude: 47.9, longitude: 1.91 } });
     expect(requetes).toEqual([]);
   });
 
-  it('géocode une adresse ; seule son empreinte sert de clé', async () => {
-    const { source } = fauxGeocodage({
-      'adresse:1 rue Fictive 45000 Orléans': [candidat({ type: 'housenumber' })],
-      'adresse:1 RUE FICTIVE 45000 ORLÉANS': [candidat({ type: 'housenumber' })],
+  it('cherche un lieu nommé parmi les points d’intérêt et rend son libellé', async () => {
+    const { source, requetes } = fauxGeocodage({
+      "poi:Gare d'Austerlitz": [
+        candidat({
+          type: 'gare',
+          latitude: 48.8416,
+          longitude: 2.3662,
+          departement: '75',
+          commune: 'Paris',
+          nom: "Gare d'Austerlitz",
+        }),
+      ],
     });
-    const o = await origineTrajet(source, '1 rue Fictive 45000 Orléans');
-    expect(o?.point).toEqual(ORLEANS);
-    expect(o?.cle).toMatch(/^[0-9a-f]{64}$/);
-    expect(o?.cle).toBe((await origineTrajet(source, '1 RUE FICTIVE 45000 ORLÉANS'))?.cle);
+    const o = await pointDeDepart(source, "Gare d'Austerlitz");
+    expect(o).toMatchObject({ point: { latitude: 48.8416 }, libelle: "Gare d'Austerlitz (Paris)" });
+    expect(o.cle).toMatch(/^[0-9a-f]{64}$/);
+    expect(requetes).toEqual(["poi:Gare d'Austerlitz"]);
   });
 
-  it('variable vide : pas de trajets ; adresse introuvable : erreur sans recopier l’adresse', async () => {
+  it('écarte un homonyme hors du département demandé (« Gare de Lyon (75) »)', async () => {
+    const lyon = candidat({ type: 'gare', departement: '69', nom: 'Gare de Lyon-Gorge-de-Loup' });
+    const paris = candidat({
+      type: 'gare',
+      latitude: 48.8448,
+      departement: '75',
+      nom: 'Gare de Lyon',
+      commune: 'Paris',
+    });
+    const { source } = fauxGeocodage({ 'poi:Gare de Lyon': [lyon, paris] });
+    expect((await pointDeDepart(source, 'Gare de Lyon (75)')).libelle).toBe('Gare de Lyon (Paris)');
+    expect((await pointDeDepart(source, 'Gare de Lyon')).libelle).toBe('Gare de Lyon-Gorge-de-Loup (Orléans)');
+  });
+
+  it('cherche une adresse (avec code postal) d’abord parmi les adresses ; même empreinte quelle que soit la casse', async () => {
+    const adresse = [candidat({ type: 'housenumber', nom: '1 Rue Fictive 45000 Orléans' })];
+    const { source, requetes } = fauxGeocodage({
+      'adresse:1 rue Fictive 45000 Orléans': adresse,
+      'adresse:1 RUE FICTIVE 45000 ORLÉANS': adresse,
+    });
+    const o = await pointDeDepart(source, '1 rue Fictive 45000 Orléans');
+    expect(o).toMatchObject({ point: ORLEANS, libelle: '1 Rue Fictive 45000 Orléans' });
+    expect(requetes).toEqual(['adresse:1 rue Fictive 45000 Orléans']);
+    expect(o.cle).toBe((await pointDeDepart(source, '1 RUE FICTIVE 45000 ORLÉANS')).cle);
+  });
+
+  it('introuvable : erreur qui explique comment préciser', async () => {
     const { source } = fauxGeocodage({});
-    expect(await origineTrajet(source, '')).toBeUndefined();
-    await expect(origineTrajet(source, '9 impasse Secrète')).rejects.toThrow(/^(?!.*Secrète).*introuvable/);
+    await expect(pointDeDepart(source, 'Nulle part')).rejects.toThrow(/introuvable.*Gare de Lyon \(75\)/);
   });
 });
 
@@ -393,7 +389,7 @@ describe('calcul des trajets avec cache', () => {
     };
     return { fournisseur, appels };
   }
-  const origine = { cle: 'o'.repeat(64), point: ORLEANS };
+  const origine = { cle: 'o'.repeat(64), point: ORLEANS, libelle: 'Orléans' };
   const ctx = (fournisseur: FournisseurTrajet, jour = '2026-10-20') => ({
     depot,
     fournisseur,

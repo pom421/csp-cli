@@ -4,20 +4,11 @@
 import { z } from 'zod';
 import type { Depot } from '../db/depot.ts';
 import type { Geo } from '../db/schema.ts';
-import { BlocageError, IndisponibleError, UserError } from '../erreurs.ts';
+import { BlocageError, IndisponibleError } from '../erreurs.ts';
 import { obtenir } from '../http.ts';
 import { cleComparaison } from '../scraper/normalisation.ts';
 import { origine } from '../securite/urls.ts';
-import {
-  cleLieu,
-  nettoyer,
-  precisionDe,
-  requetesLieu,
-  type Lieu,
-  type Mode,
-  type Point,
-  type Requete,
-} from './lieux.ts';
+import { cleLieu, precisionDe, requetesLieu, type Lieu, type Mode, type Point, type Requete } from './lieux.ts';
 
 export interface Candidat extends Point {
   /** housenumber, street, municipality… ; `mairie` pour un point d'intérêt de catégorie mairie. */
@@ -25,6 +16,8 @@ export interface Candidat extends Point {
   score: number;
   departement: string | null;
   commune: string | null;
+  /** Libellé du lieu trouvé (« Gare d'Austerlitz », « 5 Avenue Buffon 45100 Orléans »), pour le vérifier. */
+  nom: string | null;
 }
 
 /** Accès au service de géocodage (le vrai, ou un faux dans les tests). */
@@ -43,6 +36,7 @@ const ReponseAdresses = z.object({
         score: z.number(),
         depcode: z.string().optional(),
         city: z.string().optional(),
+        label: z.string().optional(),
       }),
     }),
   ),
@@ -57,6 +51,7 @@ const ReponsePoi = z.object({
         score: z.number(),
         depcode: z.array(z.string()).default([]),
         city: z.array(z.string()).default([]),
+        toponym: z.string().optional(),
       }),
     }),
   ),
@@ -88,15 +83,18 @@ function lire<T>(schema: z.ZodType<T>, json: unknown): T {
 export const sourceIgn: SourceGeocodage = {
   nom: 'ign',
   async chercher(q, mode) {
-    if (mode === 'mairie') {
-      const json = await appelerIgn({ q: `mairie ${q}`, index: 'poi' });
+    if (mode === 'mairie' || mode === 'poi') {
+      const json = await appelerIgn({ q: mode === 'mairie' ? `mairie ${q}` : q, index: 'poi' });
       return lire(ReponsePoi, json).features.map(({ geometry, properties: p }) => ({
         longitude: geometry.coordinates[0],
         latitude: geometry.coordinates[1],
         type: p.category.includes('mairie') ? 'mairie' : (p.category[0] ?? ''),
         score: p.score,
         departement: p.depcode[0] ?? null,
-        commune: p.city[0] ?? null,
+        // Plusieurs communes possibles, dans un ordre variable (« Paris 13e Arrondissement », « Paris ») :
+        // la plus générale a le nom le plus court.
+        commune: p.city.reduce<string | null>((a, c) => (a === null || c.length < a.length ? c : a), null),
+        nom: p.toponym ?? null,
       }));
     }
     const json = await appelerIgn(mode === 'commune' ? { q, type: 'municipality' } : { q });
@@ -107,6 +105,7 @@ export const sourceIgn: SourceGeocodage = {
       score: p.score,
       departement: p.depcode ?? null,
       commune: p.city ?? null,
+      nom: p.label ?? null,
     }));
   },
 };
@@ -119,6 +118,7 @@ const ACCEPTE: Record<Mode, (c: Candidat, q: string) => boolean> = {
   adresse: (c) => ['housenumber', 'street'].includes(c.type) && c.score >= 0.6,
   mairie: (c, q) => c.type === 'mairie' && c.commune !== null && cleComparaison(c.commune) === cleComparaison(q),
   commune: (c) => c.type === 'municipality' && c.score >= 0.5,
+  poi: (c) => c.score >= 0.5,
 };
 
 /** Premier candidat fiable pour la requête, et dans le département de l'offre s'il est connu. */
@@ -173,20 +173,6 @@ export class Geocodeur {
     if (candidats === undefined) return undefined;
     const point = choisir(candidats, requete, departement);
     return this.memoriser(cle, point ? { ...point, precision_geo: precisionDe(requete.mode) } : INTROUVABLE);
-  }
-
-  /**
-   * Centre d'une recherche « commune + rayon ». « Billy (41) » lève l'ambiguïté entre homonymes.
-   * Introuvable : erreur de configuration. Service en panne : `undefined` (la recherche n'est pas filtrée ce jour).
-   */
-  async commune(texte: string): Promise<Point | undefined> {
-    const departement = /\((\d{2,3}|2[AB])\)/i.exec(texte)?.[1] ?? null;
-    const geo = await this.lieu({ adresse: null, code_postal: null, commune: nettoyer(texte), departement });
-    if (geo === undefined) return undefined;
-    if (geo.latitude === null || geo.longitude === null) {
-      throw new UserError(`Commune introuvable : « ${texte} » (préciser le département : « ${texte} (45) »)`);
-    }
-    return { latitude: geo.latitude, longitude: geo.longitude };
   }
 
   private async chercher(requete: Requete): Promise<Candidat[] | undefined> {

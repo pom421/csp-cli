@@ -1,6 +1,8 @@
 // Diagnostic : dossier local et droits, .env, recherches, Node, accès au site et aux API.
 import { existsSync } from 'node:fs';
-import { chemins, heureDepart, lireRecherches } from './config.ts';
+import { chemins, heureDepart, lireRecherches, type Recherche } from './config.ts';
+import { sourceIgn } from './geo/geocodage.ts';
+import { pointDeDepart } from './geo/trajets.ts';
 import { obtenir } from './http.ts';
 import { droits, droitsTropOuverts } from './securite/fichiers.ts';
 import { origine } from './securite/urls.ts';
@@ -61,9 +63,7 @@ export async function doctor(): Promise<number> {
       if (ouverts === undefined) return ['warn', `absent : cp .env.example ${c.env} && chmod 600 ${c.env}`];
       if (ouverts) return ['fail', `droits ${droits(c.env)} : chmod 600 ${c.env}`];
       heureDepart();
-      return process.env.CSP_ORIGINE_TRAJET
-        ? ['ok', 'droits 600, adresse de départ définie']
-        : ['warn', 'CSP_ORIGINE_TRAJET vide : pas de calcul de trajet'];
+      return ['ok', 'droits 600'];
     });
 
     await verifier('Recherches', () => {
@@ -114,6 +114,26 @@ export async function doctor(): Promise<number> {
     await verifier(libelle, async () => {
       const r = await obtenir(origine(service) + '/', '*/*');
       return ['ok', `joignable (HTTP ${r.statut})`];
+    });
+  }
+
+  // Lieu retenu pour chaque point de départ : à vérifier (« Gare de Lyon » seul peut tomber à Lyon).
+  let recherches: Recherche[] = [];
+  try {
+    recherches = lireRecherches(c.recherches);
+  } catch {
+    // Déjà signalé plus haut.
+  }
+  if (recherches.length && !recherches.some((r) => r.depart)) {
+    await verifier('Points de départ', () => [
+      'warn',
+      'aucun « depart » dans recherches.yaml : pas de calcul de trajet',
+    ]);
+  }
+  for (const r of recherches.filter((r) => r.depart)) {
+    await verifier(`Départ de ${r.nom}`, async () => {
+      const o = await pointDeDepart(sourceIgn, r.depart!);
+      return ['ok', `${o.libelle} (${o.point.latitude.toFixed(4)}, ${o.point.longitude.toFixed(4)})`];
     });
   }
 

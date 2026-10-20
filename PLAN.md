@@ -52,10 +52,10 @@ Tâche planifiée Claude (6h, Mac allumé)
  │     │                               identique  ? → INCHANGÉE (rien à faire)
  │     │     en base mais absente   → compteur ; absente 3 jours → EXPIRÉE
  │     ├─ extraire champs structurés de la page (catégorie, versant, lieu, dates…)
- │     ├─ géocoder le lieu (cache) ; recherche « commune + rayon » : offre hors rayon ignorée
+ │     ├─ géocoder le lieu (cache)
  │     ├─ écrire texte brut des NOUVELLES/MODIFIÉES dans un dossier temporaire
  │     │  → file « à résumer »
- │     └─ trajets des offres actives depuis CSP_ORIGINE_TRAJET (cache)
+ │     └─ trajets : pour chaque recherche, depuis son point de départ vers ses offres actives (cache)
  │
  ├─ 2-3. csp resumer           ← pour chaque offre en attente : texte brut → fournisseur LLM du .env
  │     (CSP_LLM_FOURNISSEUR = anthropic | albert) → JSON contraint par schéma → validation zod
@@ -143,9 +143,11 @@ Tâche planifiée Claude (6h, Mac allumé)
     (la mairie d'Orléans n'est cherchée qu'une fois pour tous les lieux qui y mènent) ; lieu introuvable en cache aussi
     (coordonnées nulles)
   - Coordonnées posées sur l'offre (`latitude`, `longitude`, `precision_geo` = `adresse` | `commune`)
-- **Filtre commune + rayon** (recherches.yaml) : centre géocodé (« Billy (41) » pour lever une ambiguïté), distance à vol
-  d'oiseau après lecture du détail (les cartes ne donnent que le département) ; offre hors rayon de toutes ses recherches
-  ni enregistrée ni résumée ; offre non localisée gardée. Pas de filtre en `--dry-run` (pas de détail lu)
+- **Zone de recherche** : départements ou régions seulement, filtrés par le site (pas de filtre de distance local)
+- **Point de départ par recherche** (`depart` dans recherches.yaml : « Gare d'Austerlitz », adresse ou `lat,lon`) :
+  géocodé à chaque exécution, par l'index des points d'intérêt (gares) ou des adresses (texte avec code postal), l'autre
+  en second recours, score ≥ 0,5 / 0,6 ; « Gare de Lyon (75) » : le département écarte les homonymes (« Gare de Lyon »
+  seul tombe à Lyon). Le lieu retenu est affiché par `csp doctor` et dans le bilan, pour vérification
 - **Trajet** : Transitous, `GET https://api.transitous.org/api/v5/plan` (MOTIS 2), gratuit, sans clé
   - Départ **à 8h (CSP_HEURE_DEPART), heure de Paris, le prochain mardi** non férié
   - Itinéraire retenu : l'arrivée la plus tôt parmi les départs entre 8h et 10h ; durée de porte à porte (marche comprise)
@@ -156,8 +158,8 @@ Tâche planifiée Claude (6h, Mac allumé)
   - Conditions d'usage (https://transitous.org/api/) : projet libre et non commercial, usage léger, user-agent avec
     contact (`csp-cli/0.1 (+https://github.com/pom421/csp-cli; …)`), **attribution
     https://transitous.org/sources/ visible** (README, rapport en phase 8). Appels séquentiels, débit de `http.ts`
-  - Adresse de départ : texte géocodé à chaque exécution (gardé en mémoire), ou `lat,lon` directement ; en base,
-    seulement son empreinte (`cle_origine`)
+  - Trajets de chaque recherche depuis son point de départ vers ses offres actives ; en base, seulement l'empreinte du
+    point de départ (`cle_origine`), jamais le texte ni les coordonnées (ce peut être une adresse personnelle)
 - **Coût** : simples appels HTTP, **0 token**, faits par le code (pas par Claude)
 - **Généralisable pour le futur site web**
   - Ce qui dépend de l'offre (lat/lon) → en base, partagé
@@ -182,7 +184,7 @@ Tâche planifiée Claude (6h, Mac allumé)
 - Données hors du dépôt : `~/.config/csp-cli/` (`CSP_HOME` pour changer) → `.env`, `csp.sqlite`, `brut/`, `diagnostics/`
 - Dossiers **0700**, fichiers **0600** (`chmod` explicite, car `mode` ignoré si le fichier existe) ; `csp doctor` vérifie
 - `.gitignore` : `.env`, `*.sqlite*`, `data/`, `brut/`, `diagnostics/`, `.claude/settings.local.json`
-- **gitleaks** : hook `pre-commit` (`.githooks/`, activé par `scripts/install-hooks.cjs` → `core.hooksPath`) + `pnpm secrets:scan` + règle perso pour l'adresse de départ si besoin
+- **gitleaks** : hook `pre-commit` (`.githooks/`, activé par `scripts/install-hooks.cjs` → `core.hooksPath`) + `pnpm secrets:scan` + règle perso pour la clé du fournisseur de résumés
 
 ### Réseau
 
@@ -214,7 +216,9 @@ Tâche planifiée Claude (6h, Mac allumé)
 recherches:
   - nom: numerique-orleans
     mots_cles: ['chef de projet', 'numérique']
-    localisation: { departements: ['45', '41'], commune: 'Orléans', rayon_km: 30 }
+    mots_exacts: true
+    localisation: { departements: ['45', '41'] }
+    depart: "Gare d'Orléans"
     teletravail: true
     categories: [A]
     versants: [FPE, FPT]
@@ -224,12 +228,12 @@ recherches:
 `~/.config/csp-cli/.env`
 
 ```
-CSP_ORIGINE_TRAJET="adresse de départ"
 CSP_HEURE_DEPART=08:00
 ```
 
 Correspondance avec les identifiants du site : `src/scraper/referentiel.ts`. `departements` / `regions` sont filtrés par le site ;
-`commune` + `rayon_km` et `versants` sont filtrés localement (le site ne les filtre pas de façon fiable, voir docs/reconnaissance.md).
+`versants` et `mots_exacts` sont filtrés localement (le site ne les filtre pas de façon fiable, voir docs/reconnaissance.md) ;
+`depart` ne sert qu'aux trajets.
 
 ## 10. Base SQLite
 
