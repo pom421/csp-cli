@@ -165,4 +165,4 @@ Sitemap: https://choisirleservicepublic.gouv.fr/sitemapindex.xml
   recommandées, attributs générés (`fav-…`, `accordion-…`).
 - Deux postes identiques (même titre, employeur, lieu) peuvent être en ligne en même temps sous deux références : une
   republication n'est signalée que si l'offre d'origine n'est plus en ligne.
-- Deux collectes successives le même jour : 54 offres inchangées sur 54 (stabilité sur deux jours à confirmer au rodage).
+- Stabilité des empreintes : 54 offres inchangées sur 54 le même jour, puis de nouveau le lendemain (19 → 20/10/2026).

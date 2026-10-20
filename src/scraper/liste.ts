@@ -39,13 +39,14 @@ export interface PageListe {
 
 /** Valeur d'une ligne `ul.fr-card__desc li` repérée par son libellé caché (« Employeur : »). */
 function ligne(carte: Element, libelle: string): string | null {
-  for (const li of tous(LISTE.lignes, carte)) {
-    const cache = un(LISTE.libelleCache, li);
-    if (!cache || !texte(cache).toLowerCase().startsWith(libelle.toLowerCase())) continue;
-    const valeur = texte(li).slice(texte(cache).length).trim();
-    return valeur || null;
-  }
-  return null;
+  const cible = libelle.toLowerCase();
+  const li = tous(LISTE.lignes, carte).find((l) => texte(un(LISTE.libelleCache, l)).toLowerCase().startsWith(cible));
+  if (!li) return null;
+  return (
+    texte(li)
+      .slice(texte(un(LISTE.libelleCache, li)).length)
+      .trim() || null
+  );
 }
 
 function lireCarte(el: Element, rang: number): Carte {

@@ -180,6 +180,7 @@ export type Execution = typeof executions.$inferSelect;
 export type Geocodage = typeof geocodage_cache.$inferSelect;
 export type Trajet = typeof trajets_cache.$inferSelect;
 export type PrecisionGeo = (typeof PRECISIONS_GEO)[number];
+export type Statut = (typeof STATUTS)[number];
 
 /** Champs posés par le code (carte, page détail, géocodage). */
 export type ChampsCode = Pick<

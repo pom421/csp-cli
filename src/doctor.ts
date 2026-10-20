@@ -3,7 +3,7 @@ import { chemins, heureDepart, lireRecherches } from './config.ts';
 import { obtenir } from './http.ts';
 import { droits, droitsTropOuverts } from './securite/fichiers.ts';
 import { origine } from './securite/urls.ts';
-import { FournisseurAlbert, fournisseurDepuisEnv } from './resume/fournisseurs.ts';
+import { fournisseurAlbert, fournisseurDepuisEnv } from './resume/fournisseurs.ts';
 
 type Statut = 'ok' | 'warn' | 'fail';
 const ICONE: Record<Statut, string> = { ok: '✔', warn: '⚠', fail: '✘' };
@@ -105,7 +105,7 @@ export async function doctor(): Promise<number> {
     if (!nom) return ['warn', 'CSP_LLM_FOURNISSEUR non défini (anthropic ou albert) : pas de csp resumer'];
     // Albert sans modèle choisi : la vérification liste les modèles disponibles.
     if (nom === 'albert' && process.env.CSP_LLM_CLE && !process.env.CSP_LLM_MODELE) {
-      await new FournisseurAlbert('', process.env.CSP_LLM_CLE).verifier();
+      await fournisseurAlbert('', process.env.CSP_LLM_CLE).verifier();
     }
     return ['ok', await fournisseurDepuisEnv().verifier()];
   });
