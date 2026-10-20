@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { chemins, lireRecherches, type Recherche } from './config.ts';
 import { Depot } from './db/depot.ts';
 import type { ChampsCode, Geo, Statut } from './db/schema.ts';
-import { codeDeSortie, UserError } from './erreurs.ts';
+import { ecrireDiagnostic, sourceMemorisante } from './diagnostic.ts';
+import { CasseError, codeDeSortie, UserError } from './erreurs.ts';
 import { Geocodeur, sourceIgn, type SourceGeocodage } from './geo/geocodage.ts';
 import { distanceKm, type Lieu, type Point } from './geo/lieux.ts';
 import type { BilanTrajets, FournisseurTrajet } from './geo/trajets.ts';
@@ -73,6 +74,7 @@ export interface OptionsCollecte {
   dossierBrut?: string;
   recherches?: Recherche[];
   maintenant?: () => Date;
+  dossierDiagnostics?: string;
   geocodage?: SourceGeocodage;
   fournisseurTrajet?: FournisseurTrajet;
   /** Adresse de départ ; par défaut CSP_ORIGINE_TRAJET. */
@@ -145,18 +147,67 @@ function statutsEnBase(depot: Depot): Map<string, Statut> {
   return new Map(depot.listerOffres().map((o) => [o.id_offre, o.statut]));
 }
 
+/** Une recherche qui avait au moins ce nombre d'offres actives et n'en rend plus aucune : le site a sans doute changé. */
+export const SEUIL_RECHERCHE_VIDE = 5;
+/**
+ * Part de pages détail introuvables (404) au-delà de laquelle le format des liens a sans doute changé, à partir de
+ * 10 pages (en dessous, deux offres retirées le même jour suffiraient à dépasser 20 %).
+ */
+export const PART_DETAILS_ABSENTS = 0.2;
+const MIN_DETAILS_CONTROLES = 10;
+
+/**
+ * Résultat suspect (PLAN §6) : une recherche tombée à zéro alors qu'elle avait des offres actives. Sans ce garde-fou,
+ * une page de résultats cassée mais lisible ferait expirer toutes les offres en trois jours.
+ */
+export function verifierResultats(resultats: ResultatRecherche[], activesParRecherche: Map<string, number>): void {
+  for (const r of resultats) {
+    const actives = activesParRecherche.get(r.nom) ?? 0;
+    if (r.total === 0 && actives >= SEUIL_RECHERCHE_VIDE) {
+      throw new CasseError(
+        'resultat-suspect',
+        `recherche « ${r.nom} » : 0 offre annoncée alors que ${actives} sont actives en base (filtres de l'URL ?)`,
+      );
+    }
+  }
+}
+
 export async function collecte(options: OptionsCollecte): Promise<BilanCollecte> {
   const recherches = selectionnerRecherches(options);
-  const source = options.source ?? sourceHttp;
+  const memoire = sourceMemorisante(options.source ?? sourceHttp);
   const maintenant = options.maintenant ?? (() => new Date());
   const base = options.base ?? chemins().base;
+  const diagnostiquer = (e: unknown) => {
+    if (!(e instanceof CasseError)) return;
+    e.diagnostic = ecrireDiagnostic(options.dossierDiagnostics ?? chemins().diagnostics, {
+      jour: jourParis(maintenant()),
+      maintenant: maintenant(),
+      erreur: e,
+      page: memoire.derniere(),
+    });
+  };
+  try {
+    return await executer(options, recherches, memoire.source, maintenant, base);
+  } catch (e) {
+    diagnostiquer(e);
+    throw e;
+  }
+}
 
+async function executer(
+  options: OptionsCollecte,
+  recherches: Recherche[],
+  source: SourcePages,
+  maintenant: () => Date,
+  base: string,
+): Promise<BilanCollecte> {
   if (options.dryRun) {
     const resultats = await parcourirToutes(source, recherches);
     const apercu = { ecriture: null, geo: null, trajets: null };
     if (!existsSync(base)) return { ...comparer(resultats, new Map(), options.recherche), ...apercu };
     const depot = new Depot(base, { lectureSeule: true });
     try {
+      verifierResultats(resultats, depot.activesParRecherche());
       return { ...comparer(resultats, statutsEnBase(depot), options.recherche), ...apercu };
     } finally {
       depot.fermer();
@@ -168,6 +219,7 @@ export async function collecte(options: OptionsCollecte): Promise<BilanCollecte>
   const jour = jourParis(maintenant());
   try {
     const resultats = await parcourirToutes(source, recherches);
+    verifierResultats(resultats, depot.activesParRecherche());
     const bilan = comparer(resultats, statutsEnBase(depot), options.recherche);
     const geocodeur = new Geocodeur(depot, options.geocodage ?? sourceIgn, jour);
     const zones = await zonesRecherches(geocodeur, recherches);
@@ -205,6 +257,7 @@ export async function collecte(options: OptionsCollecte): Promise<BilanCollecte>
       fin: maintenant().toISOString(),
       statut: 'echec',
       code_sortie: codeDeSortie(e),
+      // Le dossier de diagnostic n'est pas encore connu ici : il est écrit juste après, par `collecte`.
       message: (e as Error).message,
     });
     throw e;
@@ -391,6 +444,14 @@ async function ecrire(
   const issues: Issue[] = [];
   // Séquentiel : le délai de politesse entre deux pages du site est imposé par http.ts.
   for (const carte of bilan.cartes) issues.push(await traiterOffre(depot, source, carte, ctx));
+  const absents = issues.filter((i) => i.type === 'retiree').length;
+  // Avant de compter les absences : une casse ne doit faire expirer aucune offre.
+  if (issues.length >= MIN_DETAILS_CONTROLES && absents / issues.length > PART_DETAILS_ABSENTS) {
+    throw new CasseError(
+      'lire-detail',
+      `${absents} pages détail sur ${issues.length} introuvables (404) : format des liens d'offre changé ?`,
+    );
+  }
   if (bilan.absentes) depot.noterAbsences(bilan.absentes);
   const enregistrees = issues.filter((i) => i.type !== 'retiree' && i.type !== 'hors_zone');
   return {

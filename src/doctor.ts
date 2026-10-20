@@ -1,4 +1,5 @@
 // Diagnostic : dossier local et droits, .env, recherches, Node, accès au site et aux API.
+import { existsSync } from 'node:fs';
 import { chemins, heureDepart, lireRecherches } from './config.ts';
 import { obtenir } from './http.ts';
 import { droits, droitsTropOuverts } from './securite/fichiers.ts';
@@ -72,6 +73,22 @@ export async function doctor(): Promise<number> {
         ? ['warn', `droits ${droits(c.recherches)} : chmod 600 ${c.recherches}`]
         : ['ok', `${noms.length} : ${noms.join(', ')}`];
     });
+
+    if (existsSync(c.base)) {
+      await verifier('Dernière collecte', async () => {
+        const { Depot } = await import('./db/depot.ts');
+        const depot = new Depot(c.base, { lectureSeule: true });
+        try {
+          const e = depot.derniereExecution();
+          if (!e) return ['warn', 'aucune collecte en base'];
+          const quand = `${e.debut.slice(0, 16).replace('T', ' ')} UTC`;
+          if (e.statut === 'echec') return ['warn', `${quand}, échec (code ${e.code_sortie}) : ${e.message ?? ''}`];
+          return ['ok', `${quand}, ${e.statut}, ${e.nb_cartes ?? 0} offre(s) vue(s)`];
+        } finally {
+          depot.fermer();
+        }
+      });
+    }
 
     for (const chemin of [c.base, c.brut, c.diagnostics]) {
       if (droitsTropOuverts(chemin)) {

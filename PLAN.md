@@ -80,7 +80,7 @@ Tâche planifiée Claude (6h, Mac allumé)
 | `csp resumer [--limite <n>]`                   | Résume la file par le fournisseur du .env (Claude ou Albert), valide, enregistre, purge                                   | oui (API, clé)          |
 | `csp trajets [--recalculer]`                   | Localise les offres pas encore géocodées, calcule les trajets manquants ; `--recalculer` : changement d'adresse de départ | non                     |
 | `csp rapport [--depuis <date>]`                | Résumé court de la dernière collecte                                                                                      | non                     |
-| `csp purge`                                    | Supprime textes bruts orphelins / expirés depuis > 30 j                                                                   | non                     |
+| `csp purge [--dry-run]`                        | Supprime textes bruts orphelins / d'offres disparues depuis > 30 j, diagnostics > 30 j                                    | non                     |
 
 ## 5. Pièges identifiés (et parade)
 
@@ -113,7 +113,9 @@ Tâche planifiée Claude (6h, Mac allumé)
 - **Types de casse détectés**
   - Élément introuvable / libellé renommé → erreur sur une étape nommée
   - Extraction invalide → validation zod échoue (champ obligatoire vide, format inattendu)
-  - Résultat suspect → 0 carte sur une recherche qui en avait ≥ 5 la veille, ou > 20 % de détails en échec
+  - Résultat suspect → recherche à 0 offre alors qu'elle a ≥ 5 offres actives en base (`resultat-suspect`), ou > 20 %
+    de pages détail introuvables (404) sur au moins 10 (`lire-detail`) ; vérifié **avant** de compter les absences :
+    une casse ne fait expirer aucune offre
 - **Codes de sortie**
 
 | Code | Signification               | Réaction de Claude                             |
@@ -124,7 +126,10 @@ Tâche planifiée Claude (6h, Mac allumé)
 | 4    | Blocage (captcha, 403, 429) | arrêt, prévenir, ne rien contourner            |
 | 1    | Autre erreur                | rapport avec message                           |
 
-- **Diagnostic sauvegardé** (dossier `diagnostics/<date>/`, droits 0700) : étape, sélecteur, URL, HTML de la page, message
+- **Diagnostic sauvegardé** à chaque code 2 (collecte, y compris `--dry-run`) : `diagnostics/<jour>/<HH-MM-SS>-<étape>/`
+  (0700) avec `diagnostic.json` (étape, message avec le sélecteur, URL, date) et `page.html` (dernière page lue, 0600) ;
+  chemin affiché après le message d'erreur (`Diagnostic : …`) ; supprimé par `csp purge` après 30 jours
+- `csp doctor` affiche la dernière collecte (statut, code, message en cas d'échec)
 - **Réparation par Claude** : inspecte le site (navigateur intégré), corrige `selecteurs.ts`, ajoute la page en fixture de test, `vp run ready`, branche + PR. **Ne merge jamais** : tu valides.
 
 ## 7. Géocodage et trajets
@@ -286,7 +291,7 @@ csp-veille/
 ├── config/recherches.example.yaml
 ├── docs/reconnaissance.md     résultat phase 0
 └── src/
-    ├── cli.ts  config.ts  doctor.ts  rapport.ts  collecte.ts
+    ├── cli.ts  config.ts  doctor.ts  rapport.ts  collecte.ts  diagnostic.ts  purge.ts
     ├── securite/urls.ts  fichiers.ts
     ├── scraper/source.ts  selecteurs.ts  referentiel.ts  url.ts  dom.ts  liste.ts  detail.ts
     │           normalisation.ts  erreurs.ts

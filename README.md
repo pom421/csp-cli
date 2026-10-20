@@ -3,8 +3,8 @@
 Veille quotidienne des offres d'emploi de [Choisir le service public](https://choisirleservicepublic.gouv.fr/) : base SQLite
 locale, résumés éditoriaux, temps de trajet en transports en commun. Usage personnel (voir [CONFORMITE.md](CONFORMITE.md)).
 
-État : phases 0 à 6 du [plan](PLAN.md) (reconnaissance, socle, base, liste et détail des offres, géocodage et trajets,
-résumés). Restent la gestion de casse et la planification.
+État : phases 0 à 7 du [plan](PLAN.md) (reconnaissance, socle, base, liste et détail des offres, géocodage et trajets,
+résumés, gestion de casse). Restent la planification et le rapport.
 
 ## Installation
 
@@ -34,14 +34,20 @@ chmod 600 ~/.config/csp-veille/*
 
 ## Commandes
 
+`vp run csp …` (ou `pnpm csp …`) ; jamais mis en cache par Vite+, chaque appel s'exécute vraiment.
+
 ```bash
-pnpm csp doctor
-pnpm csp collecte [--dry-run] [--recherche <nom>] [--json]
-pnpm csp trajets [--recalculer] [--json]
-pnpm csp resumer [--limite <n>] [--json]
-pnpm csp a-resumer [--json]
-pnpm csp resume enregistrer <id> <fichier.json>
+vp run csp doctor
+vp run csp collecte [--dry-run] [--recherche <nom>] [--json]
+vp run csp trajets [--recalculer] [--json]
+vp run csp resumer [--limite <n>] [--json]
+vp run csp a-resumer [--json]
+vp run csp resume enregistrer <id> <fichier.json>
+vp run csp purge [--dry-run] [--json]
 ```
+
+En cas de casse du site (code 2), le diagnostic (étape, sélecteur, URL, HTML de la page) est sauvegardé dans
+`~/.config/csp-veille/diagnostics/<jour>/` ; son chemin est affiché après le message d'erreur.
 
 | Code de sortie | Signification                                            |
 | -------------- | -------------------------------------------------------- |

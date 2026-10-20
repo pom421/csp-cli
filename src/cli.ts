@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { parseArgs, type ParseArgsConfig } from 'node:util';
 import { chargerEnv, chemins } from './config.ts';
 import type { Depot } from './db/depot.ts';
-import { codeDeSortie, UserError } from './erreurs.ts';
+import { CasseError, codeDeSortie, UserError } from './erreurs.ts';
 import { appliquerProxy, utiliserCertificatsSysteme } from './http.ts';
 
 type Valeurs = Record<string, string | boolean | undefined>;
@@ -74,6 +74,21 @@ const COMMANDES: Record<string, Commande> = {
       const { trajets, formaterResultatTrajets } = await import('./trajets.ts');
       const resultat = await trajets({ jour: await aujourdhui(), recalculer: Boolean(v.recalculer) });
       afficher(v, resultat, () => formaterResultatTrajets(resultat));
+      return 0;
+    },
+  },
+  purge: {
+    syntaxe: '[--dry-run] [--json]',
+    aide:
+      'Supprime les textes bruts orphelins ou d’offres disparues depuis 30 jours et les diagnostics de plus de 30 jours ;\n' +
+      '--dry-run : liste sans rien supprimer',
+    options: { 'dry-run': { type: 'boolean' }, ...JSON_OPTION },
+    async executer(v) {
+      if (!existsSync(chemins().base))
+        throw new UserError(`Base absente (${chemins().base}) : lancez d'abord csp collecte.`);
+      const { purge, formaterPurge } = await import('./purge.ts');
+      const bilan = purge({ jour: await aujourdhui(), dryRun: Boolean(v['dry-run']) });
+      afficher(v, bilan, () => formaterPurge(bilan));
       return 0;
     },
   },
@@ -188,6 +203,7 @@ main(process.argv.slice(2)).then(
     // Erreur connue (saisie, casse, réseau, blocage) : message seul ; sinon pile complète pour le diagnostic.
     const connue = err instanceof UserError || codeDeSortie(err) !== 1;
     console.error(connue ? (err as Error).message : err);
+    if (err instanceof CasseError && err.diagnostic) console.error(`Diagnostic : ${err.diagnostic}`);
     process.exit(codeDeSortie(err));
   },
 );

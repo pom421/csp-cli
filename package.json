@@ -14,7 +14,6 @@
     "prepare": "node scripts/install-hooks.cjs",
     "csp": "node --use-system-ca --disable-warning=ExperimentalWarning src/cli.ts",
     "test": "vp test",
-    "ready": "vp check && vp test",
     "secrets:scan": "gitleaks git --redact --no-banner --config .gitleaks.toml && gitleaks git --pre-commit --redact --no-banner --config .gitleaks.toml",
     "db:generer": "drizzle-kit generate"
   },
