@@ -222,6 +222,15 @@ export class Depot {
       .run();
   }
 
+  /** Toutes les paires recherche → offre (affichage : une requête plutôt qu'une par offre). */
+  liensRecherches(): { nom_recherche: string; id_offre: string }[] {
+    return this.db
+      .select()
+      .from(recherches_offres)
+      .orderBy(asc(recherches_offres.nom_recherche), asc(recherches_offres.id_offre))
+      .all();
+  }
+
   recherchesDe(idOffre: string): string[] {
     return this.db
       .select({ nom: recherches_offres.nom_recherche })

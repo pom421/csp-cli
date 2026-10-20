@@ -4,7 +4,7 @@ Veille quotidienne des offres d'emploi de [Choisir le service public](https://ch
 locale, résumés éditoriaux, temps de trajet en transports en commun. Usage personnel (voir [CONFORMITE.md](CONFORMITE.md)).
 
 État : phases 0 à 7 du [plan](PLAN.md) (reconnaissance, socle, base, liste et détail des offres, géocodage et trajets,
-résumés, gestion de casse). Restent la planification et le rapport.
+résumés, gestion de casse), et l'application de consultation (`csp web`). Restent la planification et le rapport.
 
 ## Installation
 
@@ -46,7 +46,15 @@ vp run csp resumer [--limite <n>] [--json]
 vp run csp a-resumer [--json]
 vp run csp resume enregistrer <id> <fichier.json>
 vp run csp purge [--dry-run] [--json]
+vp run csp web [--port <n>]
 ```
+
+`csp web` ouvre l'application de consultation sur http://127.0.0.1:4321 : cartes des offres, détail (résumé, points
+d'attention, trajets), filtres (recherche, nouveautés, trajet maximum, rémunération, télétravail, catégorie, contrat,
+management, département, statut) et tri. Les filtres sont rangés dans l'URL : un marque-page rouvre la même vue.
+Lecture seule de la base, aucun appel réseau sortant, écoute locale seulement. L'application (React, Tailwind,
+shadcn/ui, dossier `web/`) se compile une fois avec `vp run web:build` ; `vp run web:dev` pour la modifier à chaud
+(avec `csp web` lancé à côté pour l'API).
 
 En cas de casse du site (code 2), le diagnostic (étape, sélecteur, URL, HTML de la page) est sauvegardé dans
 `~/.config/csp-cli/diagnostics/<jour>/` ; son chemin est affiché après le message d'erreur.
@@ -62,7 +70,7 @@ En cas de casse du site (code 2), le diagnostic (étape, sélecteur, URL, HTML d
 ## Développement
 
 ```bash
-vp run ready         # vp check && vp test
+vp run ready         # vp check && vp test && vp build web
 pnpm secrets:scan    # gitleaks sur l'historique et les fichiers non commités
 ```
 
