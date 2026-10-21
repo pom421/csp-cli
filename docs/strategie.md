@@ -23,27 +23,24 @@ vue, même si elle contient les bons mots.
 - **[Détail]** : page de l'offre ouverte, texte complet lu.
 - **[LLM]** : analyse (résumé) par le fournisseur du `.env`.
 
-| Étape | Où       | Traitement                                                                                                                                                                                                                                                                                                                                                                                             |
-| ----- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1     | [Site]   | Départements 45, 75, 93, 94 ; catégories A et A+ ; nature : fonctionnaires, ou titulaires et contractuels (contractuels seuls exclus) ; télétravail oui ; management non ; date de publication (48 h chaque jour, 1 mois au premier import). Aucun mot-clé, aucun domaine.                                                                                                                             |
-| 2     | [Détail] | Ouverture de chaque offre. Expérience : débutant exclu (confirmé, expert ou non renseignée gardés). Recherche des mots-clés en mots entiers (sans casse, accents ni ponctuation) dans le titre et le texte. Une offre écartée est mémorisée avec son motif (jamais rouverte) ; son texte est gardé pour rejouer le filtre si la liste de mots change. Le bilan indique quel mot a retenu chaque offre. |
-| 3     | [LLM]    | Résumé des seules offres retenues. Note de pertinence : plus tard.                                                                                                                                                                                                                                                                                                                                     |
-| 4     | code     | Trajets (Transitous) depuis le point de départ de la recherche : Gare d'Orléans (45), Gare d'Austerlitz (75, 93, 94).                                                                                                                                                                                                                                                                                  |
-
-**Filtre par domaine, gardé sous la main** (pas appliqué) : [Carte], sans requête supplémentaire, 4 domaines « cadres
-généralistes » (Numérique, Direction et pilotage des politiques publiques, Organisation, contrôle et évaluation,
-Communication). Le bilan signale les offres retenues hors de ces domaines, pour juger de ce qu'il ferait perdre.
+| Étape | Où       | Traitement                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | [Site]   | Départements 45, 75, 93, 94 ; catégories A et A+ ; nature : fonctionnaires, ou titulaires et contractuels (contractuels seuls exclus) ; télétravail oui ; management non ; date de publication (48 h chaque jour, 1 mois au premier import). Aucun mot-clé, aucun domaine.                                                                                                                                      |
+| 2     | [Carte]  | Domaine : 4 domaines « cadres généralistes » (Numérique, Direction et pilotage des politiques publiques, Organisation, contrôle et évaluation, Communication). Pas dans l'URL du site (décision du 21/10) : lu sur la carte, sans requête de plus. Une carte hors domaine est écartée sans ouvrir l'offre.                                                                                                      |
+| 3     | [Détail] | Ouverture de chaque offre restante. Expérience : débutant exclu (confirmé, expert ou non renseignée gardés). Recherche des mots-clés en mots entiers (sans casse, accents ni ponctuation) dans le titre et le texte. Une offre écartée est mémorisée avec son motif (jamais rouverte) ; son texte est gardé pour rejouer le filtre si la liste de mots change. Le bilan indique quel mot a retenu chaque offre. |
+| 4     | [LLM]    | Résumé des seules offres retenues. Note de pertinence : plus tard ; elle triera notamment les offres qui ne citent l'IA qu'en passant (l'intérêt : l'IA côté dev, devops, data analyst, data engineer).                                                                                                                                                                                                         |
+| 5     | code     | Trajets (Transitous) depuis le point de départ de la recherche : Gare d'Orléans (45), Gare d'Austerlitz (75, 93, 94).                                                                                                                                                                                                                                                                                           |
 
 Les deux versants restent (État et territoriale).
 
-### Mots-clés (étape 2)
+### Mots-clés (étape 3)
 
 - TypeScript / JavaScript : typescript, ts, javascript, js, node.js, nodejs, ecmascript
 - Python : python, django
 - Conteneurs : docker, conteneur, conteneurs, container, containers, kubernetes, k8s, openshift, helm
 - Cloud : openstack, open stack, nubo
 - Rôles : lead dev, lead developer, lead développeur, lead développeuse, dev lead, tech lead, techlead, technical lead,
-  leader technique, référent technique, cto, directeur technique, directrice technique
+  leader technique, cto, directeur technique, directrice technique
 - DevOps : devops, devsecops, sre, site reliability, ci/cd
 - IA : ia, iag, ia générative, intelligence artificielle, genai, llm, grand modèle de langage, large language model,
   machine learning, apprentissage automatique
@@ -72,20 +69,20 @@ périmètre de l'étape 1, toutes ouvertes en 16 min (~4 s par page, délai de p
 retenues** par les mots-clés (12 %). Une page de liste fait ~190 Ko transférés (4,5 Mo décompressés, presque tout le
 formulaire de filtres) ; une page détail ~215 Ko décompressés (taille transférée non mesurée : volumes ci-dessous maximaux).
 
-|                                                         | Premier import (1 mois)    | Chaque jour             |
-| ------------------------------------------------------- | -------------------------- | ----------------------- |
-| Offres du périmètre (étape 1)                           | ~1 000                     | ~34                     |
-| Pages de liste                                          | ~50 (~10 Mo)               | 1 à 2 (< 0,4 Mo)        |
-| Pages détail                                            | ~1 000, ~70 min (≤ 215 Mo) | ~34, ~2 min 30 (≤ 7 Mo) |
-| Offres retenues → LLM                                   | ~120                       | ~4                      |
-| Durée LLM (Albert, ~10 s par offre, **non mesuré**)     | ~20 min                    | < 1 min                 |
-| Revérification hebdomadaire (1/7 des retenues par jour) | —                          | ~15 pages détail        |
+|                                                         | Premier import (1 mois)  | Chaque jour            |
+| ------------------------------------------------------- | ------------------------ | ---------------------- |
+| Offres du périmètre (étape 1)                           | ~1 000                   | ~34                    |
+| Pages de liste                                          | ~50 (~10 Mo)             | 1 à 2 (< 0,4 Mo)       |
+| Après filtre de domaine (étape 2) = pages détail        | ~480, ~32 min (≤ 105 Mo) | ~16, ~1 min (≤ 3,5 Mo) |
+| Offres retenues → LLM                                   | ~110                     | ~4                     |
+| Durée LLM (Albert, ~10 s par offre, **non mesuré**)     | ~18 min                  | < 1 min                |
+| Revérification hebdomadaire (1/7 des retenues par jour) | —                        | ~15 pages détail       |
 
-Filtre par domaine (sous la main) : sur les 28 retenues du test, **1 seule** était hors des 4 domaines (et peu pertinente).
-Il diviserait environ par deux les pages détail ouvertes.
+Filtre par domaine : dans le test, 114 offres sur 236 étaient dans les 4 domaines (48 %) ; 27 des 28 retenues aussi, la
+28e était du bruit. « référent technique » retiré des mots-clés après le test (3 offres retenues, toutes du bruit).
 
 Révisions : le 21/10, première estimation à ~26 offres par jour et ~50-70 retenues par mois (mesures partielles) ; revue
-à la hausse par le test.
+par le test, puis par l'activation du filtre de domaine.
 
 ### Évolution du volume selon le périmètre (pour mémoire)
 
