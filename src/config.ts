@@ -39,40 +39,43 @@ export function heureDepart(): string {
 // Valeurs lisibles ; la correspondance avec les identifiants du site est dans src/scraper/referentiel.ts.
 const texte = z.string().trim().min(1).max(200);
 
-export const RechercheSchema = z
-  .strictObject({
-    nom: z
-      .string()
-      .regex(/^[a-z0-9][a-z0-9-]{0,62}$/, 'minuscules, chiffres et tirets (sert de clé en base et de nom de dossier)'),
-    mots_cles: z.array(texte).max(10).default([]),
-    /**
-     * La recherche du site est large (« react » ramène « réactivité », « REACH ») : avec `true`, une offre n'est gardée
-     * que si l'un des mots-clés figure en mots entiers dans son titre ou son texte (filtre local, après lecture du détail).
-     */
-    mots_exacts: z.boolean().optional(),
-    // Filtrés par le site.
-    localisation: z
-      .strictObject({
-        departements: z.array(z.enum(Object.keys(DEPARTEMENTS) as [string, ...string[]])).optional(),
-        regions: z.array(z.enum(Object.keys(REGIONS) as [string, ...string[]])).optional(),
-      })
-      .optional(),
-    /**
-     * Point de départ des trajets de cette recherche : lieu (« Gare d'Austerlitz », « Gare de Lyon (75) » pour lever
-     * une ambiguïté), adresse, ou « lat,lon ». Absent : pas de trajets pour cette recherche.
-     */
-    depart: texte.optional(),
-    teletravail: z.boolean().optional(),
-    management: z.boolean().optional(),
-    categories: z.array(z.enum(['A+', 'A', 'B', 'C'])).optional(),
-    versants: z.array(z.enum(['FPE', 'FPT', 'FPH'])).optional(),
-    type_contrat: z.array(z.enum(['titulaire', 'contractuel'])).optional(),
-    experience: z.enum(['debutant', 'confirme', 'expert']).optional(),
-  })
-  .refine((r) => !r.mots_exacts || r.mots_cles.length > 0, {
-    message: 'mots_exacts demande au moins un mot-clé',
-    path: ['mots_exacts'],
-  });
+export const RechercheSchema = z.strictObject({
+  nom: z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9-]{0,62}$/, 'minuscules, chiffres et tirets (sert de clé en base et de nom de dossier)'),
+  /**
+   * Stratégie 2 (docs/strategie.md) : jamais envoyés au site. Une offre n'est gardée que si l'un d'eux figure en mots
+   * entiers dans son titre ou son texte (sans casse, accents ni ponctuation), après ouverture de la page détail.
+   * Liste vide : aucune sélection par mot-clé.
+   */
+  mots_cles: z.array(texte).max(300).default([]),
+  // Filtrés par le site.
+  localisation: z
+    .strictObject({
+      departements: z.array(z.enum(Object.keys(DEPARTEMENTS) as [string, ...string[]])).optional(),
+      regions: z.array(z.enum(Object.keys(REGIONS) as [string, ...string[]])).optional(),
+    })
+    .optional(),
+  /**
+   * Point de départ des trajets de cette recherche : lieu (« Gare d'Austerlitz », « Gare de Lyon (75) » pour lever
+   * une ambiguïté), adresse, ou « lat,lon ». Absent : pas de trajets pour cette recherche.
+   */
+  depart: texte.optional(),
+  /** `true` : « oui » exigé ; `false` : « non » exigé (filtres du site, une offre non renseignée n'est pas renvoyée). */
+  teletravail: z.boolean().optional(),
+  management: z.boolean().optional(),
+  categories: z.array(z.enum(['A+', 'A', 'B', 'C'])).optional(),
+  type_contrat: z.array(z.enum(['titulaire', 'contractuel'])).optional(),
+  // Filtrés localement.
+  /** Lu sur la carte (le filtre du site n'est pas fiable) ; une carte sans versant est gardée. */
+  versants: z.array(z.enum(['FPE', 'FPT', 'FPH'])).optional(),
+  /** Lus sur la carte, sans ouvrir l'offre ; libellés du site (« Numérique »), casse et accents ignorés. */
+  domaines: z.array(texte).optional(),
+  /** Lue sur la page détail ; une expérience non renseignée est gardée. */
+  experiences_exclues: z.array(z.enum(['debutant', 'confirme', 'expert'])).optional(),
+  /** Premier import (base sans collecte réussie) : offres publiées depuis ce nombre de jours (30 par défaut). */
+  premier_import_jours: z.number().int().min(1).max(365).optional(),
+});
 
 export const RecherchesSchema = z
   .strictObject({ recherches: z.array(RechercheSchema).min(1) })

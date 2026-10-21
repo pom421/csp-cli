@@ -2,7 +2,7 @@
 import { chmodSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { and, asc, desc, eq, gte, isNull, lt, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
 import { drizzle, type NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { migrate } from 'drizzle-orm/node-sqlite/migrator';
 import { UserError } from '../erreurs.ts';
@@ -12,6 +12,7 @@ import {
   executions,
   geocodage_cache,
   offres,
+  offres_ecartees,
   recherches_offres,
   trajets_cache,
   type ChampsCode,
@@ -19,6 +20,7 @@ import {
   type Execution,
   type Geo,
   type Geocodage,
+  type MotifEcart,
   type Offre,
   type Trajet,
 } from './schema.ts';
@@ -185,6 +187,54 @@ export class Depot {
       .all()
       .map((l) => l.id)
       .sort();
+  }
+
+  /** Offre active publiée avant `limite` (AAAA-MM-JJ) : `expiree` (stratégie 2 : 90 jours) ; renvoie leurs identifiants. */
+  expirerAnciennes(limite: string): string[] {
+    return this.db
+      .update(offres)
+      .set({ statut: 'expiree' })
+      .where(and(eq(offres.statut, 'active'), lt(offres.date_publication, limite)))
+      .returning({ id: offres.id_offre })
+      .all()
+      .map((l) => l.id)
+      .sort();
+  }
+
+  /** Offres actives dont la page n'a pas été relue depuis `limite` (revérification par roulement), les plus anciennes d'abord. */
+  aReverifier(limite: string): Offre[] {
+    return this.db
+      .select()
+      .from(offres)
+      .where(and(eq(offres.statut, 'active'), lt(offres.date_derniere_vue, limite)))
+      .orderBy(asc(offres.date_derniere_vue), asc(offres.id_offre))
+      .all();
+  }
+
+  /** Une offre retirée du site lors d'une revérification : `expiree` tout de suite (la page détail répond 404). */
+  marquerRetiree(idOffre: string): void {
+    this.db.update(offres).set({ statut: 'expiree' }).where(eq(offres.id_offre, idOffre)).run();
+  }
+
+  // ── Offres écartées (jamais rouvertes) ────────────────────────────────────
+
+  ecarter(idOffre: string, motif: MotifEcart, date: string): void {
+    this.db
+      .insert(offres_ecartees)
+      .values({ id_offre: idOffre, motif, date })
+      .onConflictDoUpdate({ target: offres_ecartees.id_offre, set: { motif, date } })
+      .run();
+  }
+
+  /** Parmi `ids`, celles déjà écartées. */
+  ecartees(ids: readonly string[]): Set<string> {
+    if (!ids.length) return new Set();
+    const lignes = this.db
+      .select({ id: offres_ecartees.id_offre })
+      .from(offres_ecartees)
+      .where(inArray(offres_ecartees.id_offre, [...ids]))
+      .all();
+    return new Set(lignes.map((l) => l.id));
   }
 
   /** Offre active dont la date limite (ISO) est passée : `cloturee` ; renvoie leurs identifiants. */
@@ -371,5 +421,16 @@ export class Depot {
 
   derniereExecution(): Execution | undefined {
     return this.db.select().from(executions).orderBy(desc(executions.id)).limit(1).get();
+  }
+
+  /** Dernière collecte terminée sans erreur (complète ou non) : point de départ de la collecte incrémentale. */
+  derniereCollecteReussie(): Execution | undefined {
+    return this.db
+      .select()
+      .from(executions)
+      .where(and(eq(executions.code_sortie, 0), ne(executions.statut, 'echec')))
+      .orderBy(desc(executions.id))
+      .limit(1)
+      .get();
   }
 }

@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 process.env.CSP_HOME = mkdtempSync(join(tmpdir(), 'csp-test-'));
+// Nouvelles tentatives après un 503 : quelques millisecondes au lieu de 10 s, 25 s, 60 s.
+process.env.CSP_ATTENTES_503_MS = '1,1,1';
 
 const HOTES_LOCAUX = new Set(['localhost', '127.0.0.1', '[::1]']);
 const fetchReel = globalThis.fetch;

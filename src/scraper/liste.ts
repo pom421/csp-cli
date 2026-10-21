@@ -3,7 +3,7 @@ import type { Recherche } from '../config.ts';
 import { CasseError } from '../erreurs.ts';
 import { origine } from '../securite/urls.ts';
 import { analyser, attribut, tous, texte, un, type Element } from './dom.ts';
-import { dateFrancaise, empreinte } from './normalisation.ts';
+import { cleComparaison, dateFrancaise, empreinte } from './normalisation.ts';
 import { VERSANTS_CARTE } from './referentiel.ts';
 import {
   AUCUN_RESULTAT,
@@ -114,14 +114,30 @@ export interface ResultatRecherche {
   cartes: Carte[];
   /** Cartes écartées par le filtre local de versant. */
   ecartees: number;
-  /** --dry-run avec `mots_exacts` : cartes dont le titre ne contient aucun mot-clé (le texte n'est pas lu en aperçu). */
-  ecartees_titre?: number;
+  /** Cartes écartées par le filtre local de domaine. */
+  ecartees_domaine: number;
+  /** Filtre « date de publication » du site (`dernieres_48_heures`…) ; `null` : liste complète. */
+  fenetre: string | null;
+  /** Cartes publiées avant cette date (AAAA-MM-JJ) ignorées, et parcours arrêté : la liste est triée par date. */
+  depuis: string | null;
   /** Plafond de pages atteint : des offres manquent, la collecte n'est pas complète. */
   tronquee: boolean;
 }
 
-/** Parcourt toutes les pages d'une recherche. Les URL de page sont construites par le code, pas lues sur le site. */
-export async function parcourirRecherche(source: SourcePages, recherche: Recherche): Promise<ResultatRecherche> {
+export interface Periode {
+  fenetre?: string;
+  depuis?: string;
+}
+
+/**
+ * Parcourt les pages d'une recherche (toutes, ou jusqu'à la première carte publiée avant `depuis`). Les URL de page
+ * sont construites par le code, pas lues sur le site.
+ */
+export async function parcourirRecherche(
+  source: SourcePages,
+  recherche: Recherche,
+  periode: Periode = {},
+): Promise<ResultatRecherche> {
   const cartes: Carte[] = [];
   let total = 0;
   let page = 1;
@@ -130,7 +146,7 @@ export async function parcourirRecherche(source: SourcePages, recherche: Recherc
     const etape = page === 1 ? 'ouvrir-recherche' : 'page-suivante';
     let html: string;
     try {
-      html = await source.html(urlRecherche(recherche, page), etape);
+      html = await source.html(urlRecherche(recherche, page, periode.fenetre), etape);
     } catch (e) {
       // Une page de résultats introuvable n'est pas une offre retirée : l'URL de recherche ne marche plus.
       if (e instanceof PageAbsenteError) throw new CasseError(etape, e.message);
@@ -138,8 +154,12 @@ export async function parcourirRecherche(source: SourcePages, recherche: Recherc
     }
     const lue = lirePageListe(html);
     if (page === 1) total = lue.total;
-    cartes.push(...lue.cartes);
-    if (!lue.suivante || lue.cartes.length === 0) break;
+    // Une carte sans date est gardée : mieux vaut une offre de trop qu'une offre perdue.
+    const recentes = lue.cartes.filter(
+      (c) => !periode.depuis || !c.date_publication || c.date_publication >= periode.depuis,
+    );
+    cartes.push(...recentes);
+    if (!lue.suivante || lue.cartes.length === 0 || recentes.length < lue.cartes.length) break;
     if (page === PAGES_MAX) {
       tronquee = true;
       break;
@@ -149,12 +169,20 @@ export async function parcourirRecherche(source: SourcePages, recherche: Recherc
   // Le filtre « versant » du site n'est pas fiable : filtrage local. Un libellé inconnu est conservé (pas de perte).
   const versants = recherche.versants;
   const gardees = versants?.length ? cartes.filter((c) => c.versant === null || versants.includes(c.versant)) : cartes;
+  // Domaine : lu sur la carte (pas de filtre dans l'URL, décision du 21/10/2026) ; une carte sans domaine est gardée.
+  const domaines = recherche.domaines?.map(cleComparaison);
+  const dansDomaine = domaines?.length
+    ? gardees.filter((c) => c.domaine === null || domaines.includes(cleComparaison(c.domaine)))
+    : gardees;
   return {
     nom: recherche.nom,
     pages: page,
     total,
-    cartes: gardees,
+    cartes: dansDomaine,
     ecartees: cartes.length - gardees.length,
+    ecartees_domaine: gardees.length - dansDomaine.length,
+    fenetre: periode.fenetre ?? null,
+    depuis: periode.depuis ?? null,
     tronquee,
   };
 }

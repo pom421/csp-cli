@@ -1,16 +1,16 @@
 // Identifiants internes du site pour les filtres (relevés le 19/10/2026, docs/reconnaissance.md).
 // Ils viennent de la base WordPress du site et peuvent changer : un seul endroit à corriger.
 
-/** Segments d'URL, dans l'ordre où le JS du site les écrit (`window.ParamsDataSearch.url_keywords`). */
+/**
+ * Segments d'URL utilisés, dans l'ordre où le JS du site les écrit (`window.ParamsDataSearch.url_keywords`). Mot-clé,
+ * domaine et expérience existent mais ne sont pas envoyés (stratégie 2 : filtrés localement, docs/strategie.md).
+ */
 export const SEGMENTS = [
-  'mot-cles',
   'localisation',
-  'domaine',
   'categorie',
   'type',
   'management',
   'teletravail',
-  'experience',
   'date-de-publication',
 ] as const;
 
@@ -25,10 +25,15 @@ export const NATURES = {
   contractuels_seulement: '2267',
 } as const;
 
-export const EXPERIENCES = { debutant: '1835', confirme: '1834', expert: '1833' } as const;
+/** Télétravail et management : « oui » et « non » (relevé du 21/10/2026, la valeur non renseignée n'a pas de filtre). */
+export const OUI_NON = { oui: '1814', non: '1815' } as const;
 
-/** Valeur unique des interrupteurs télétravail et management. */
-export const INTERRUPTEUR = '1814';
+/** Fenêtres du filtre « date de publication » proposées par le site, de la plus courte à la plus longue. */
+export const FENETRES_PUBLICATION = [
+  { jours: 2, valeur: 'dernieres_48_heures' },
+  { jours: 7, valeur: '7_derniers_jours' },
+  { jours: 14, valeur: '14_derniers_jours' },
+] as const;
 
 /** Code INSEE du département → identifiant du site (segment `localisation`). */
 export const DEPARTEMENTS: Record<string, string> = {

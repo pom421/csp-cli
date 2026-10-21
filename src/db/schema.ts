@@ -20,6 +20,7 @@ export const PRECISIONS_GEO = ['adresse', 'commune'] as const;
 export const STATUTS = ['active', 'cloturee', 'expiree'] as const;
 export const RAISONS = ['nouvelle', 'modifiee'] as const;
 export const STATUTS_EXECUTION = ['en_cours', 'complete', 'incomplete', 'echec'] as const;
+export const MOTIFS_ECART = ['experience', 'mots_cles'] as const;
 
 /** Contrainte CHECK « valeur dans la liste » : la base refuse ce que le typage TypeScript n'aurait pas vu. */
 const dans = (colonne: AnySQLiteColumn, valeurs: readonly string[]) =>
@@ -163,6 +164,20 @@ export const trajets_cache = sqliteTable(
   ],
 );
 
+/**
+ * Offres ouvertes puis écartées (stratégie 2, étape [Détail]) : jamais rouvertes. Rien de l'offre n'est en base ; son
+ * texte (coordonnées retirées) reste dans `brut/ecartees/` pour rejouer le filtre si les mots-clés changent.
+ */
+export const offres_ecartees = sqliteTable(
+  'offres_ecartees',
+  {
+    id_offre: text().primaryKey(),
+    motif: text({ enum: MOTIFS_ECART }).notNull(),
+    date: text().notNull(),
+  },
+  (t) => [check('offres_ecartees_motif', dans(t.motif, MOTIFS_ECART))],
+);
+
 export const executions = sqliteTable(
   'executions',
   {
@@ -188,6 +203,7 @@ export type Trajet = typeof trajets_cache.$inferSelect;
 export type Geo = Pick<Offre, 'latitude' | 'longitude' | 'precision_geo'>;
 export type PrecisionGeo = (typeof PRECISIONS_GEO)[number];
 export type Statut = (typeof STATUTS)[number];
+export type MotifEcart = (typeof MOTIFS_ECART)[number];
 
 /** Champs posés par le code à partir de la carte et de la page détail (les coordonnées : `Depot.poserGeo`). */
 export type ChampsCode = Pick<

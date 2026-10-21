@@ -142,6 +142,18 @@ describe('offres', () => {
     expect(depot.obtenirOffre('2026-2445380')).toMatchObject({ statut: 'active', absences_consecutives: 0 });
   });
 
+  it('expire les offres publiées avant une date ; mémorise les offres écartées', () => {
+    depot.enregistrerOffre(offre({ date_publication: '2026-07-01' }), J1);
+    depot.enregistrerOffre(offre({ id_offre: 'B', date_publication: '2026-10-01' }), J1);
+    expect(depot.expirerAnciennes('2026-07-01')).toEqual([]);
+    expect(depot.expirerAnciennes('2026-07-23')).toEqual(['2026-2445380']);
+    expect(depot.obtenirOffre('B')!.statut).toBe('active');
+    depot.ecarter('C', 'mots_cles', J1);
+    depot.ecarter('C', 'experience', J2);
+    expect(depot.ecartees(['B', 'C'])).toEqual(new Set(['C']));
+    expect(depot.ecartees([])).toEqual(new Set());
+  });
+
   it('clôture une offre dont la date limite est passée, sans toucher aux autres', () => {
     depot.enregistrerOffre(offre(), J1);
     depot.enregistrerOffre(offre({ id_offre: 'B', date_limite_candidature: null }), J1);

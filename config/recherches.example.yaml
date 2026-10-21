@@ -1,17 +1,53 @@
-# À copier dans ~/.config/csp-cli/recherches.yaml et adapter.
+# À copier dans ~/.config/csp-cli/recherches.yaml et adapter. Stratégie : docs/strategie.md (« stratégie 2 »).
 # Les valeurs lisibles (A, FPE, titulaire…) sont traduites en identifiants du site par le code.
+#
+# [Site]   localisation, categories, type_contrat, teletravail, management (+ date de publication, posée par le code)
+# [Carte]  versants, domaines : lus dans la liste, sans ouvrir l'offre
+# [Détail] experiences_exclues, mots_cles : l'offre est ouverte, puis gardée ou écartée (et jamais rouverte)
 recherches:
-  - nom: numerique-orleans
-    mots_cles: ['chef de projet numérique']
-    # La recherche du site est large (« react » ramène « réactivité ») : mots_exacts ne garde que les offres où un
-    # mot-clé figure en mots entiers (titre ou texte). En --dry-run, seul le titre est vérifié.
-    mots_exacts: true
-    # Filtrés par le site.
-    localisation: { departements: ['45', '41'] }
+  - nom: orleans
+    localisation: { departements: ['45'] }
     # Point de départ des trajets : lieu (« Gare d'Austerlitz », « Gare de Lyon (75) » pour lever une ambiguïté),
     # adresse, ou « lat,lon ». csp doctor affiche le lieu retenu.
     depart: "Gare d'Orléans"
+    categories: [A+, A]
+    # titulaire : fonctionnaires, ou titulaires et contractuels (les postes réservés aux contractuels sont exclus).
+    type_contrat: [titulaire]
+    # true : « oui » exigé ; false : « non » exigé.
     teletravail: true
-    categories: [A]
-    versants: [FPE, FPT]
-    type_contrat: [titulaire, contractuel]
+    management: false
+    domaines: &domaines
+      - Numérique
+      - Direction et pilotage des politiques publiques
+      - Organisation, contrôle et évaluation
+      - Communication
+    # Une expérience non renseignée est gardée.
+    experiences_exclues: [debutant]
+    # Jamais envoyés au site : cherchés en mots entiers (sans casse, accents ni ponctuation) dans le texte de l'offre.
+    # Une offre est gardée si l'un d'eux y figure. Le bilan indique lesquels ont été trouvés.
+    mots_cles: &mots
+      - typescript
+      - javascript
+      - python
+      - django
+      - docker
+      - kubernetes
+      - k8s
+      - devops
+      - tech lead
+      - ia
+      - intelligence artificielle
+    # Premier import (base vide) : offres publiées depuis ce nombre de jours (30 par défaut).
+    premier_import_jours: 30
+
+  - nom: paris
+    localisation: { departements: ['75', '93', '94'] }
+    depart: "Gare d'Austerlitz"
+    categories: [A+, A]
+    type_contrat: [titulaire]
+    teletravail: true
+    management: false
+    # Mêmes domaines et mots-clés que la recherche précédente (ancres YAML).
+    domaines: *domaines
+    experiences_exclues: [debutant]
+    mots_cles: *mots
