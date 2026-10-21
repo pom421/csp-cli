@@ -16,7 +16,7 @@ recherches:
     # true : « oui » exigé ; false : « non » exigé.
     teletravail: true
     management: false
-    domaines:
+    domaines: &domaines
       - Numérique
       - Direction et pilotage des politiques publiques
       - Organisation, contrôle et évaluation
@@ -47,11 +47,7 @@ recherches:
     type_contrat: [titulaire]
     teletravail: true
     management: false
-    domaines:
-      - Numérique
-      - Direction et pilotage des politiques publiques
-      - Organisation, contrôle et évaluation
-      - Communication
+    # Mêmes domaines et mots-clés que la recherche précédente (ancres YAML).
+    domaines: *domaines
     experiences_exclues: [debutant]
-    # Mêmes mots-clés que la recherche précédente (ancre YAML).
     mots_cles: *mots
