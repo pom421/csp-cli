@@ -23,20 +23,23 @@ vue, même si elle contient les bons mots.
 - **[Détail]** : page de l'offre ouverte, texte complet lu.
 - **[LLM]** : analyse (résumé) par le fournisseur du `.env`.
 
-| Étape | Où       | Traitement                                                                                                                                                                                                                                                                                                                                     |
-| ----- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | [Site]   | Départements 45, 75, 93, 94 ; catégories A et A+ ; télétravail oui ; management non ; date de publication (48 h chaque jour, 1 mois au premier import). Aucun mot-clé.                                                                                                                                                                         |
-| 2     | [Carte]  | Domaine : 4 domaines « cadres généralistes » (Numérique, Direction et pilotage des politiques publiques, Organisation, contrôle et évaluation, Communication) — **à trancher** après l'itération de comparaison avec / sans.                                                                                                                   |
-| 3     | [Détail] | Ouverture de chaque offre restante ; recherche des mots-clés en mots entiers (sans casse, accents ni ponctuation) dans le titre et le texte. Une offre sans aucun mot-clé est écartée et mémorisée (jamais rouverte) ; son texte est gardé pour rejouer le filtre si la liste de mots change. Le bilan indique quel mot a retenu chaque offre. |
-| 4     | [LLM]    | Résumé des seules offres retenues. Note de pertinence : plus tard.                                                                                                                                                                                                                                                                             |
-| 5     | code     | Trajets (Transitous) depuis le point de départ de la recherche : Gare d'Orléans (45), Gare d'Austerlitz (75, 93, 94).                                                                                                                                                                                                                          |
+| Étape | Où       | Traitement                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1     | [Site]   | Départements 45, 75, 93, 94 ; catégories A et A+ ; nature : fonctionnaires, ou titulaires et contractuels (contractuels seuls exclus) ; télétravail oui ; management non ; date de publication (48 h chaque jour, 1 mois au premier import). Aucun mot-clé, aucun domaine.                                                                                                                             |
+| 2     | [Détail] | Ouverture de chaque offre. Expérience : débutant exclu (confirmé, expert ou non renseignée gardés). Recherche des mots-clés en mots entiers (sans casse, accents ni ponctuation) dans le titre et le texte. Une offre écartée est mémorisée avec son motif (jamais rouverte) ; son texte est gardé pour rejouer le filtre si la liste de mots change. Le bilan indique quel mot a retenu chaque offre. |
+| 3     | [LLM]    | Résumé des seules offres retenues. Note de pertinence : plus tard.                                                                                                                                                                                                                                                                                                                                     |
+| 4     | code     | Trajets (Transitous) depuis le point de départ de la recherche : Gare d'Orléans (45), Gare d'Austerlitz (75, 93, 94).                                                                                                                                                                                                                                                                                  |
+
+**Filtre par domaine, gardé sous la main** (pas appliqué) : [Carte], sans requête supplémentaire, 4 domaines « cadres
+généralistes » (Numérique, Direction et pilotage des politiques publiques, Organisation, contrôle et évaluation,
+Communication). Le bilan signale les offres retenues hors de ces domaines, pour juger de ce qu'il ferait perdre.
 
 Les deux versants restent (État et territoriale).
 
-### Mots-clés (étape 3)
+### Mots-clés (étape 2)
 
 - TypeScript / JavaScript : typescript, ts, javascript, js, node.js, nodejs, ecmascript
-- Python : python
+- Python : python, django
 - Conteneurs : docker, conteneur, conteneurs, container, containers, kubernetes, k8s, openshift, helm
 - Cloud : openstack, open stack, nubo
 - Rôles : lead dev, lead developer, lead développeur, lead développeuse, dev lead, tech lead, techlead, technical lead,
@@ -44,8 +47,13 @@ Les deux versants restent (État et territoriale).
 - DevOps : devops, devsecops, sre, site reliability, ci/cd
 - IA : ia, iag, ia générative, intelligence artificielle, genai, llm, grand modèle de langage, large language model,
   machine learning, apprentissage automatique
+- Craftsmanship : craftsmanship, software craftsmanship, tdd, test driven development, développement piloté par les tests,
+  bdd, behavior driven development, behaviour driven development, ddd, domain driven design, architecture hexagonale,
+  hexagonal architecture, clean architecture, clean code, pair programming, programmation en binôme, mob programming,
+  refactoring, extreme programming
 
-Exclus car ambigus en français : « ai » (j'ai), « vue » (en vue de), « node » seul. « ts » est gardé à l'essai.
+Exclus car ambigus en français : « ai » (j'ai), « vue » (en vue de), « node » seul, « xp ». Gardés à l'essai, à surveiller dans le bilan : « ts », et « bdd » (souvent « base de
+données » en français).
 
 ## Rythme
 
@@ -54,25 +62,30 @@ Exclus car ambigus en français : « ai » (j'ai), « vue » (en vue de), « nod
   complète triée par date, arrêt au-delà de la dernière collecte).
 - **Offres retenues** : revérifiées une fois par semaine par roulement (retrait, modification → nouveau résumé) ; expirées à
   leur date limite de candidature ou 90 jours après publication.
+- **Erreur 503** (site momentanément indisponible) : nouvelles tentatives après 10 s, 25 s puis 60 s ; si le 503 persiste,
+  arrêt en code 3. Les offres déjà lues sont conservées, la suite est reprise au passage suivant.
 
 ## Estimations
 
-Mesurées le 21/10/2026 sur le vrai site (périmètre de l'étape 1 : 370 offres en 14 jours). Une page de liste fait ~190 Ko
-transférés (4,5 Mo décompressés, presque tout le formulaire de filtres) ; une page détail ~215 Ko décompressés (taille
-transférée non mesurée : les volumes ci-dessous sont des maximums). Durées à une requête toutes les 2-3 s.
+Mesurées le 21/10/2026 par un test réel de la stratégie 2 sur 7 jours (publications du 14 au 21/10) : 236 offres au
+périmètre de l'étape 1, toutes ouvertes en 16 min (~4 s par page, délai de politesse compris) ; 26 « débutant » ; **28
+retenues** par les mots-clés (12 %). Une page de liste fait ~190 Ko transférés (4,5 Mo décompressés, presque tout le
+formulaire de filtres) ; une page détail ~215 Ko décompressés (taille transférée non mesurée : volumes ci-dessous maximaux).
 
-|                                                         | Premier import (1 mois)  | Chaque jour          |
-| ------------------------------------------------------- | ------------------------ | -------------------- |
-| Offres du périmètre (étape 1)                           | ~800                     | ~26                  |
-| Avec le filtre de domaine (étape 2)                     | ~410                     | ~14                  |
-| Pages de liste                                          | ~40 (~8 Mo)              | 1 à 2 (< 0,4 Mo)     |
-| Pages détail (sans filtre de domaine)                   | ~800, ~35 min (≤ 170 Mo) | ~26, ~1 min (≤ 6 Mo) |
-| Offres retenues → LLM                                   | ~50 à 70                 | 2 à 3                |
-| Durée LLM (Albert, ~10 s par offre, **non mesuré**)     | ~10 min                  | < 1 min              |
-| Revérification hebdomadaire (1/7 des retenues par jour) | —                        | ~10 pages détail     |
+|                                                         | Premier import (1 mois)    | Chaque jour             |
+| ------------------------------------------------------- | -------------------------- | ----------------------- |
+| Offres du périmètre (étape 1)                           | ~1 000                     | ~34                     |
+| Pages de liste                                          | ~50 (~10 Mo)               | 1 à 2 (< 0,4 Mo)        |
+| Pages détail                                            | ~1 000, ~70 min (≤ 215 Mo) | ~34, ~2 min 30 (≤ 7 Mo) |
+| Offres retenues → LLM                                   | ~120                       | ~4                      |
+| Durée LLM (Albert, ~10 s par offre, **non mesuré**)     | ~20 min                    | < 1 min                 |
+| Revérification hebdomadaire (1/7 des retenues par jour) | —                          | ~15 pages détail        |
 
-Les « offres retenues » viennent d'une mesure de la stratégie 1 (16 mots-clés, 1 mois, sans télétravail ni management :
-90 offres remontées par le site, ~55 pertinentes au titre) : à confirmer par la première itération.
+Filtre par domaine (sous la main) : sur les 28 retenues du test, **1 seule** était hors des 4 domaines (et peu pertinente).
+Il diviserait environ par deux les pages détail ouvertes.
+
+Révisions : le 21/10, première estimation à ~26 offres par jour et ~50-70 retenues par mois (mesures partielles) ; revue
+à la hausse par le test.
 
 ### Évolution du volume selon le périmètre (pour mémoire)
 
@@ -84,14 +97,8 @@ Les « offres retenues » viennent d'une mesure de la stratégie 1 (16 mots-clé
 | + télétravail oui + management non, catégories A et A+ | **~26** (370 en 14 jours) |
 | + les 4 domaines                                       | ~14 (192 en 14 jours)     |
 
-## Première itération (à faire)
+## Première itération
 
-1. Premier import sans filtre de domaine (étape 2 désactivée).
-2. Bilan : offres retenues par mot-clé, et liste des offres retenues **hors des 4 domaines** → décider du filtre de domaine.
+1. ~~Test sur les 7 derniers jours, sans filtre de domaine~~ : fait le 21/10/2026 (voir Estimations).
+2. ~~Bilan par mot-clé et hors domaines~~ : fait.
 3. Mesurer la durée réelle d'Albert sur quelques offres ; revoir les estimations ci-dessus et les signaler si elles changent.
-
-## Points ouverts
-
-- **Nature de l'emploi** (fonctionnaires ou titulaires et contractuels) et **expérience** (confirmé, expert ou non renseigné) :
-  demandés plus tôt, pas repris depuis → à confirmer (s'ils restent : [Site] pour la nature, liste d'exclusion « débutant »).
-- Technologies voisines (React, Angular, Django…) : non incluses dans les mots-clés.

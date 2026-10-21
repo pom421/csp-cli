@@ -70,6 +70,7 @@ Relevé du site : [docs/reconnaissance.md](docs/reconnaissance.md). Stratégie d
 - Stratégie ([docs/strategie.md](docs/strategie.md)) : la désigner par son nom (« stratégie 2 »), définir toute nouvelle
   option avant d'en parler, préciser où se fait chaque traitement ([Site], [Carte], [Détail], [LLM]). **Signaler** toute
   demande qui diverge de la stratégie et toute estimation revue, avant d'agir ; tenir le document à jour.
+- Questions à trancher par le propriétaire : **toujours numérotées** (1., 2., …), pour qu'il puisse y répondre par numéro.
 - Git : une branche par sujet, PR **jamais en brouillon**, commits et PR en français, sans ligne d'attribution.
 - Merger **uniquement sur demande explicite** du propriétaire, après CI verte (réparation de casse : ne jamais merger).
 - Lancer l'outil avec `vp run csp …` : les scripts ne sont jamais mis en cache (un cache rejouerait un bilan sans rien
