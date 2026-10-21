@@ -11,9 +11,18 @@ export const USER_AGENT = 'csp-cli/0.1 (+https://github.com/pom421/csp-cli; veil
 /** Délai minimal entre deux requêtes vers une même origine (politesse, CONFORMITE.md règle 3). */
 const delaiMs = () => Number(process.env.CSP_DELAI_MS ?? 2500);
 const TIMEOUT_MS = 30_000;
+/**
+ * Attentes avant chaque nouvelle tentative après un 503 (site momentanément indisponible, docs/strategie.md) ; au-delà,
+ * code 3. `CSP_ATTENTES_503_MS` (liste séparée par des virgules) les raccourcit dans les tests.
+ */
+const attentes503 = () =>
+  (process.env.CSP_ATTENTES_503_MS ?? '10000,25000,60000').split(',').filter(Boolean).map(Number);
 const MAX_REDIRECTIONS = 3;
 
 const derniereRequete = new Map<string, number>();
+
+/** Marqueur d'un 503, seul statut qui donne lieu à de nouvelles tentatives. */
+const INDISPONIBLE_503 = Symbol('503');
 
 async function attendreTour(origine: string): Promise<void> {
   const attente = (derniereRequete.get(origine) ?? 0) + delaiMs() - Date.now();
@@ -36,6 +45,20 @@ export async function obtenir(
   accept = 'text/html',
   entetes: Record<string, string> = {},
 ): Promise<Reponse> {
+  const attentes = attentes503();
+  for (let essai = 0; ; essai++) {
+    const r = await obtenirUneFois(brut, accept, entetes);
+    if (r !== INDISPONIBLE_503) return r;
+    if (essai >= attentes.length) throw new IndisponibleError(`${String(brut)} : HTTP 503 après ${essai + 1} essais`);
+    await new Promise((ok) => setTimeout(ok, attentes[essai]));
+  }
+}
+
+async function obtenirUneFois(
+  brut: string | URL,
+  accept: string,
+  entetes: Record<string, string>,
+): Promise<Reponse | typeof INDISPONIBLE_503> {
   let url = urlAutorisee(brut);
   for (let saut = 0; saut <= MAX_REDIRECTIONS; saut++) {
     await attendreTour(url.origin);
@@ -59,6 +82,10 @@ export async function obtenir(
     if (res.status === 403 || res.status === 429) {
       await res.body?.cancel();
       throw new BlocageError(`${url.href} : HTTP ${res.status}, arrêt sans contournement`);
+    }
+    if (res.status === 503) {
+      await res.body?.cancel();
+      return INDISPONIBLE_503;
     }
     if (res.status >= 500) {
       await res.body?.cancel();

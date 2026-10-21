@@ -1,11 +1,12 @@
-// Collecte quotidienne (PLAN §4) : recherches → cartes → détail de chaque offre → géocodage → base, file « à résumer »
-// → trajets. --dry-run : liste seule, comparée à la base ouverte en lecture seule, rien n'est écrit ni téléchargé au-delà
-// des listes (ni géocodage, ni trajets).
+// Collecte quotidienne, stratégie 2 (docs/strategie.md) : [Site] périmètre sans mot-clé, publications récentes →
+// [Carte] versant et domaine → [Détail] expérience et mots-clés en mots entiers → base, file « à résumer » → trajets.
+// Les offres écartées après ouverture sont mémorisées et jamais rouvertes ; les offres retenues sont revérifiées par
+// roulement. --dry-run : listes seules, comparées à la base ouverte en lecture seule (ni détail, ni géocodage, ni trajets).
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { chemins, lireRecherches, type Recherche } from './config.ts';
 import { Depot } from './db/depot.ts';
-import type { ChampsCode, Statut } from './db/schema.ts';
+import type { ChampsCode, MotifEcart, Offre, Statut } from './db/schema.ts';
 import { ecrireDiagnostic, sourceMemorisante } from './diagnostic.ts';
 import { CasseError, codeDeSortie, UserError } from './erreurs.ts';
 import { Geocodeur, sourceIgn, type SourceGeocodage } from './geo/geocodage.ts';
@@ -13,13 +14,21 @@ import type { Lieu } from './geo/lieux.ts';
 import type { FournisseurTrajet } from './geo/trajets.ts';
 import { formaterTrajetsRecherches, trajetsDuJour, type BilanTrajetsRecherche } from './trajets.ts';
 import { dossierPrive, ecrireFichierPrive } from './securite/fichiers.ts';
+import { joursAvant } from './purge.ts';
 import { lireDetail, type Detail } from './scraper/detail.ts';
-import { parcourirRecherche, type Carte, type ResultatRecherche } from './scraper/liste.ts';
+import { parcourirRecherche, type Carte, type Periode, type ResultatRecherche } from './scraper/liste.ts';
 import { contientMotExact, empreinteIdentite } from './scraper/normalisation.ts';
+import { FENETRES_PUBLICATION } from './scraper/referentiel.ts';
 import { PageAbsenteError, sourceHttp, type SourcePages } from './scraper/source.ts';
 
-/** Absences consécutives avant de considérer une offre expirée (PLAN §5). */
+/** Absences consécutives avant de considérer une offre expirée (PLAN §5, liste complète seulement). */
 export const SEUIL_EXPIRATION = 3;
+/** Une offre retenue expire ce nombre de jours après sa publication (stratégie 2). */
+export const DUREE_VIE_JOURS = 90;
+/** Une offre retenue est relue au plus tard après ce nombre de jours (revérification par roulement). */
+export const REVERIFICATION_JOURS = 7;
+/** Premier import, faute de `premier_import_jours` dans la recherche. */
+export const PREMIER_IMPORT_JOURS = 30;
 
 export interface Ecriture {
   nouvelles: string[];
@@ -30,8 +39,17 @@ export interface Ecriture {
   cloturees: string[];
   /** Offre listée mais page retirée avant le téléchargement du détail. */
   pages_retirees: string[];
-  /** Aucun mot-clé en mots entiers (recherches `mots_exacts`) : ni enregistrée, ni résumée. */
-  hors_mots_cles: string[];
+  /** Ouvertes puis écartées (mémorisées, jamais rouvertes), par motif. */
+  ecartees: Record<MotifEcart, string[]>;
+  /** Déjà écartées un jour précédent : pas rouvertes. */
+  deja_ecartees: number;
+  /** Offres retenues relues par roulement ; celles dont la page a disparu sont passées en expirées. */
+  reverifiees: number;
+  retirees: string[];
+  /** Publiées depuis plus de `DUREE_VIE_JOURS`. */
+  expirees_age: string[];
+  /** Mots-clés trouvés, par offre retenue aujourd'hui (pour juger des termes trop bavards). */
+  mots: Record<string, string[]>;
   a_resumer: number;
 }
 
@@ -158,6 +176,8 @@ const MIN_DETAILS_CONTROLES = 10;
  */
 export function verifierResultats(resultats: ResultatRecherche[], activesParRecherche: Map<string, number>): void {
   for (const r of resultats) {
+    // Avec le filtre de date du site, une journée sans publication est normale.
+    if (r.fenetre) continue;
     const actives = activesParRecherche.get(r.nom) ?? 0;
     if (r.total === 0 && actives >= SEUIL_RECHERCHE_VIDE) {
       throw new CasseError(
@@ -166,6 +186,21 @@ export function verifierResultats(resultats: ResultatRecherche[], activesParRech
       );
     }
   }
+}
+
+/** Jours entiers entre deux dates AAAA-MM-JJ. */
+const ecartJours = (avant: string, apres: string) =>
+  Math.round((Date.parse(`${apres}T12:00:00Z`) - Date.parse(`${avant}T12:00:00Z`)) / 86_400_000);
+
+/**
+ * Publications à lire : la plus courte fenêtre du site qui couvre depuis la dernière collecte réussie (marge d'un jour) ;
+ * au-delà de 14 jours, liste complète triée par date jusqu'à la dernière collecte (marge de 2 jours). Premier import :
+ * `premier_import_jours`.
+ */
+export function periodeCollecte(derniere: string | null, jour: string, r: Recherche): Periode {
+  if (!derniere) return { depuis: joursAvant(jour, r.premier_import_jours ?? PREMIER_IMPORT_JOURS) };
+  const fenetre = FENETRES_PUBLICATION.find((f) => f.jours >= ecartJours(derniere, jour) + 1);
+  return fenetre ? { fenetre: fenetre.valeur } : { depuis: joursAvant(derniere, 2) };
 }
 
 export async function collecte(options: OptionsCollecte): Promise<BilanCollecte> {
@@ -197,12 +232,16 @@ async function executer(
   maintenant: () => Date,
   base: string,
 ): Promise<BilanCollecte> {
+  const jour = jourParis(maintenant());
   if (options.dryRun) {
-    const resultats = filtrerTitres(await parcourirToutes(source, recherches), motsExacts(recherches));
     const apercu = { ecriture: null, geo: null, trajets: null };
-    if (!existsSync(base)) return { ...comparer(resultats, new Map(), options.recherche), ...apercu };
+    if (!existsSync(base)) {
+      const resultats = await parcourirToutes(source, recherches, null, jour);
+      return { ...comparer(resultats, new Map(), options.recherche), ...apercu };
+    }
     const depot = new Depot(base, { lectureSeule: true });
     try {
+      const resultats = await parcourirToutes(source, recherches, derniereCollecte(depot), jour);
       verifierResultats(resultats, depot.activesParRecherche());
       return { ...comparer(resultats, statutsEnBase(depot), options.recherche), ...apercu };
     } finally {
@@ -211,10 +250,10 @@ async function executer(
   }
 
   const depot = new Depot(base);
+  const derniere = derniereCollecte(depot);
   const execution = depot.commencerExecution(maintenant().toISOString());
-  const jour = jourParis(maintenant());
   try {
-    const resultats = await parcourirToutes(source, recherches);
+    const resultats = await parcourirToutes(source, recherches, derniere, jour);
     verifierResultats(resultats, depot.activesParRecherche());
     const bilan = comparer(resultats, statutsEnBase(depot), options.recherche);
     const geocodeur = new Geocodeur(depot, options.geocodage ?? sourceIgn, jour);
@@ -222,7 +261,7 @@ async function executer(
       jour,
       dossierBrut: options.dossierBrut ?? chemins().brut,
       geocodeur,
-      motsExacts: motsExacts(recherches),
+      recherches: new Map(recherches.map((r) => [r.nom, r])),
     });
     const geo: BilanGeo = {
       appels: geocodeur.appels,
@@ -236,12 +275,13 @@ async function executer(
     });
     depot.terminerExecution(execution, {
       fin: maintenant().toISOString(),
-      statut: bilan.partielle ? 'incomplete' : 'complete',
+      // Liste limitée aux publications récentes : normal (stratégie 2). Incomplète : une seule recherche, ou plafond.
+      statut: options.recherche || bilan.recherches.some((r) => r.tronquee) ? 'incomplete' : 'complete',
       code_sortie: 0,
       nb_cartes: bilan.cartes.length,
       nb_nouvelles: ecriture.nouvelles.length,
       nb_modifiees: ecriture.modifiees.length,
-      nb_expirees: ecriture.expirees.length,
+      nb_expirees: ecriture.expirees.length + ecriture.expirees_age.length + ecriture.retirees.length,
       message: bilan.partielle,
     });
     return { ...bilan, ecriture, geo, trajets };
@@ -259,9 +299,20 @@ async function executer(
   }
 }
 
-async function parcourirToutes(source: SourcePages, recherches: Recherche[]): Promise<ResultatRecherche[]> {
+/** Jour (Paris) de la dernière collecte réussie ; `null` : premier import. */
+function derniereCollecte(depot: Depot): string | null {
+  const e = depot.derniereCollecteReussie();
+  return e ? jourParis(new Date(e.debut)) : null;
+}
+
+async function parcourirToutes(
+  source: SourcePages,
+  recherches: Recherche[],
+  derniere: string | null,
+  jour: string,
+): Promise<ResultatRecherche[]> {
   const resultats: ResultatRecherche[] = [];
-  for (const r of recherches) resultats.push(await parcourirRecherche(source, r));
+  for (const r of recherches) resultats.push(await parcourirRecherche(source, r, periodeCollecte(derniere, jour, r)));
   return resultats;
 }
 
@@ -280,7 +331,11 @@ const classer =
 function raisonPartielle(resultats: ResultatRecherche[], rechercheUnique: string | undefined): string | null {
   if (rechercheUnique) return `une seule recherche lancée (${rechercheUnique})`;
   const tronquees = resultats.filter((r) => r.tronquee).map((r) => r.nom);
-  return tronquees.length ? `plafond de pages atteint : ${tronquees.join(', ')}` : null;
+  if (tronquees.length) return `plafond de pages atteint : ${tronquees.join(', ')}`;
+  // Stratégie 2 : seules les publications récentes sont listées, une offre ancienne absente n'a rien d'anormal.
+  if (resultats.some((r) => r.fenetre || r.depuis))
+    return 'publications récentes seulement (revérification par roulement)';
+  return null;
 }
 
 function comparer(
@@ -304,22 +359,34 @@ function comparer(
   };
 }
 
-/** Mots-clés exigés en mots entiers, par recherche (seulement celles qui ont `mots_exacts`). */
-export const motsExacts = (recherches: Recherche[]): Map<string, string[]> =>
-  new Map(recherches.filter((r) => r.mots_exacts).map((r) => [r.nom, r.mots_cles]));
+/** Mots-clés trouvés en mots entiers dans le texte (titre compris). */
+export const motsTrouves = (mots: readonly string[], texte: string): string[] =>
+  mots.filter((m) => contientMotExact(texte, m));
 
-/** Recherches dont l'offre contient au moins un mot-clé en mots entiers (les autres recherches ne filtrent rien). */
-export function recherchesParMots(noms: string[], mots: Map<string, string[]>, texte: string): string[] {
-  return noms.filter((nom) => mots.get(nom)?.some((m) => contientMotExact(texte, m)) ?? true);
-}
-
-/** Aperçu (--dry-run) : le texte des offres n'est pas lu, le filtre `mots_exacts` ne voit que le titre des cartes. */
-function filtrerTitres(resultats: ResultatRecherche[], mots: Map<string, string[]>): ResultatRecherche[] {
-  return resultats.map((r) => {
-    if (!mots.has(r.nom)) return r;
-    const cartes = r.cartes.filter((c) => recherchesParMots([r.nom], mots, c.titre).length);
-    return { ...r, cartes, ecartees_titre: r.cartes.length - cartes.length };
+/**
+ * Filtres [Détail] de chaque recherche de l'offre : expérience exclue, puis mots-clés (une recherche sans mot-clé garde
+ * tout). Renvoie les recherches qui gardent l'offre et les mots trouvés, ou le motif d'écart si aucune ne la garde.
+ */
+export function filtrerDetail(
+  noms: readonly string[],
+  recherches: ReadonlyMap<string, Recherche>,
+  detail: Pick<Detail, 'titre' | 'texte_brut' | 'experience'>,
+): { gardee_par: string[]; mots: string[] } | { motif: MotifEcart } {
+  const texte = `${detail.titre}\n${detail.texte_brut}`;
+  const parExperience = noms.filter((nom) => {
+    const exclues = recherches.get(nom)?.experiences_exclues ?? [];
+    return !detail.experience || !exclues.includes(detail.experience);
   });
+  if (!parExperience.length) return { motif: 'experience' };
+  const mots = new Set<string>();
+  const gardee_par = parExperience.filter((nom) => {
+    const cles = recherches.get(nom)?.mots_cles ?? [];
+    if (!cles.length) return true;
+    const trouves = motsTrouves(cles, texte);
+    trouves.forEach((m) => mots.add(m));
+    return trouves.length > 0;
+  });
+  return gardee_par.length ? { gardee_par, mots: [...mots] } : { motif: 'mots_cles' };
 }
 
 const lieuDe = (c: ChampsCode): Lieu => ({
@@ -331,8 +398,10 @@ const lieuDe = (c: ChampsCode): Lieu => ({
 
 /** Ce qui est arrivé à une offre lors de l'écriture. */
 type Issue = (
-  | { type: 'retiree' | 'hors_mots_cles' | 'inchangee' }
-  | { type: 'nouvelle' | 'modifiee'; republication_de: string | null }
+  | { type: 'retiree' }
+  | { type: 'ecartee'; motif: MotifEcart }
+  | { type: 'inchangee'; mots: string[] }
+  | { type: 'nouvelle' | 'modifiee'; republication_de: string | null; mots: string[] }
 ) & { id_offre: string; localisee: boolean };
 
 const ECRITURE_VIDE: Ecriture = {
@@ -343,7 +412,12 @@ const ECRITURE_VIDE: Ecriture = {
   expirees: [],
   cloturees: [],
   pages_retirees: [],
-  hors_mots_cles: [],
+  ecartees: { experience: [], mots_cles: [] },
+  deja_ecartees: 0,
+  reverifiees: 0,
+  retirees: [],
+  expirees_age: [],
+  mots: {},
   a_resumer: 0,
 };
 
@@ -352,17 +426,23 @@ function cumuler(e: Ecriture, issue: Issue): Ecriture {
   switch (issue.type) {
     case 'retiree':
       return { ...e, pages_retirees: [...e.pages_retirees, issue.id_offre] };
-    case 'hors_mots_cles':
-      return { ...e, hors_mots_cles: [...e.hors_mots_cles, issue.id_offre] };
+    case 'ecartee':
+      return { ...e, ecartees: { ...e.ecartees, [issue.motif]: [...e.ecartees[issue.motif], issue.id_offre] } };
     case 'inchangee':
-      return { ...e, inchangees: e.inchangees + 1 };
+      return { ...e, inchangees: e.inchangees + 1, mots: { ...e.mots, [issue.id_offre]: issue.mots } };
     case 'nouvelle':
     case 'modifiee': {
       const liste = issue.type === 'nouvelle' ? 'nouvelles' : 'modifiees';
       const republications = issue.republication_de
         ? [...e.republications, { id_offre: issue.id_offre, republication_de: issue.republication_de }]
         : e.republications;
-      return { ...e, [liste]: [...e[liste], issue.id_offre], republications, a_resumer: e.a_resumer + 1 };
+      return {
+        ...e,
+        [liste]: [...e[liste], issue.id_offre],
+        republications,
+        mots: { ...e.mots, [issue.id_offre]: issue.mots },
+        a_resumer: e.a_resumer + 1,
+      };
     }
   }
 }
@@ -373,12 +453,21 @@ interface ContexteEcriture {
   /** Offres en ligne aujourd'hui : une offre identique encore en ligne n'est pas une republication. */
   enLigne: Set<string>;
   geocodeur: Geocodeur;
-  /** Mots-clés des recherches `mots_exacts`, par nom de recherche. */
-  motsExacts: Map<string, string[]>;
+  /** Recherches par nom (filtres [Détail]). */
+  recherches: ReadonlyMap<string, Recherche>;
 }
 
-/** Télécharge le détail d'une offre et l'enregistre, en une transaction (un arrêt laisse les précédentes complètes). */
-async function traiterOffre(depot: Depot, source: SourcePages, carte: CarteVue, ctx: ContexteEcriture): Promise<Issue> {
+/**
+ * Télécharge le détail d'une offre, applique les filtres [Détail] et l'enregistre, en une transaction (un arrêt laisse
+ * les précédentes complètes). `reverification` : offre déjà retenue, relue sans refiltrer.
+ */
+async function traiterOffre(
+  depot: Depot,
+  source: SourcePages,
+  carte: CarteVue,
+  ctx: ContexteEcriture,
+  reverification = false,
+): Promise<Issue> {
   const { id_offre } = carte;
   let detail: Detail;
   try {
@@ -388,8 +477,15 @@ async function traiterOffre(depot: Depot, source: SourcePages, carte: CarteVue, 
     throw err;
   }
   const champs = champsOffre(carte, detail);
-  const parMots = recherchesParMots(carte.recherches, ctx.motsExacts, `${detail.titre}\n${detail.texte_brut}`);
-  if (!parMots.length) return { id_offre, type: 'hors_mots_cles', localisee: false };
+  const filtre = reverification
+    ? { gardee_par: carte.recherches, mots: [] }
+    : filtrerDetail(carte.recherches, ctx.recherches, detail);
+  if ('motif' in filtre) {
+    ecrireTexteBrut(join(ctx.dossierBrut, 'ecartees'), id_offre, detail.texte_brut);
+    depot.ecarter(id_offre, filtre.motif, ctx.jour);
+    return { id_offre, type: 'ecartee', motif: filtre.motif, localisee: false };
+  }
+  const { gardee_par: parMots, mots } = filtre;
   // Hors transaction : un appel réseau (le cache répond pour les lieux déjà vus).
   const geo = await ctx.geocodeur.lieu(lieuDe(champs));
   const localisee = geo?.latitude != null;
@@ -398,7 +494,7 @@ async function traiterOffre(depot: Depot, source: SourcePages, carte: CarteVue, 
     // Géocodeur en panne : les coordonnées déjà connues sont gardées.
     if (geo) depot.poserGeo(id_offre, geo);
     parMots.forEach((nom) => depot.lierRecherche(nom, id_offre));
-    if (evolution === 'inchangee') return { id_offre, type: 'inchangee', localisee };
+    if (evolution === 'inchangee') return { id_offre, type: 'inchangee', mots, localisee };
     const origine =
       evolution === 'nouvelle' && champs.empreinte_identite
         ? depot.trouverRepublication(champs.empreinte_identite, id_offre)
@@ -406,7 +502,7 @@ async function traiterOffre(depot: Depot, source: SourcePages, carte: CarteVue, 
     const republication_de = origine && !ctx.enLigne.has(origine) ? origine : null;
     if (republication_de) depot.marquerRepublication(id_offre, republication_de);
     depot.ajouterAResumer(id_offre, evolution, ecrireTexteBrut(ctx.dossierBrut, id_offre, detail.texte_brut), ctx.jour);
-    return { id_offre, type: evolution, republication_de, localisee };
+    return { id_offre, type: evolution, republication_de, mots, localisee };
   });
 }
 
@@ -426,9 +522,12 @@ async function ecrire(
   contexte: Omit<ContexteEcriture, 'enLigne'>,
 ): Promise<{ ecriture: Ecriture; non_localisees: number }> {
   const ctx: ContexteEcriture = { ...contexte, enLigne: new Set(bilan.cartes.map((c) => c.id_offre)) };
+  const dejaEcartees = depot.ecartees(bilan.cartes.map((c) => c.id_offre));
   const issues: Issue[] = [];
   // Séquentiel : le délai de politesse entre deux pages du site est imposé par http.ts.
-  for (const carte of bilan.cartes) issues.push(await traiterOffre(depot, source, carte, ctx));
+  for (const carte of bilan.cartes) {
+    if (!dejaEcartees.has(carte.id_offre)) issues.push(await traiterOffre(depot, source, carte, ctx));
+  }
   const absents = issues.filter((i) => i.type === 'retiree').length;
   // Avant de compter les absences : une casse ne doit faire expirer aucune offre.
   if (issues.length >= MIN_DETAILS_CONTROLES && absents / issues.length > PART_DETAILS_ABSENTS) {
@@ -438,15 +537,54 @@ async function ecrire(
     );
   }
   if (bilan.absentes) depot.noterAbsences(bilan.absentes);
-  const enregistrees = issues.filter((i) => !['retiree', 'hors_mots_cles'].includes(i.type));
+  const reverif = await reverifier(depot, source, ctx);
+  const enregistrees = [...issues, ...reverif].filter((i) => !['retiree', 'ecartee'].includes(i.type));
   return {
     ecriture: {
-      ...issues.reduce(cumuler, ECRITURE_VIDE),
+      // Une page disparue à la revérification n'est pas une « page retirée » du jour : comptée à part (`retirees`).
+      ...[...issues, ...reverif.filter((i) => i.type !== 'retiree')].reduce(cumuler, ECRITURE_VIDE),
+      deja_ecartees: dejaEcartees.size,
+      reverifiees: reverif.length,
+      retirees: reverif.filter((i) => i.type === 'retiree').map((i) => i.id_offre),
       expirees: bilan.absentes ? depot.expirer(SEUIL_EXPIRATION) : [],
       cloturees: depot.cloturer(ctx.jour),
+      expirees_age: depot.expirerAnciennes(joursAvant(ctx.jour, DUREE_VIE_JOURS)),
     },
     non_localisees: enregistrees.filter((i) => !i.localisee).length,
   };
+}
+
+/** Carte reconstituée depuis la base, pour relire une offre qui n'est plus dans la liste du jour. */
+const carteDe = (o: Offre, recherches: string[]): CarteVue => ({
+  id_offre: o.id_offre,
+  url: o.url,
+  titre: o.titre,
+  employeur: o.employeur,
+  versant: o.versant,
+  domaine: o.domaine,
+  localisation: null,
+  departement: o.departement,
+  date_publication: o.date_publication,
+  empreinte_carte: o.empreinte_carte ?? '',
+  recherches,
+});
+
+/**
+ * Revérification par roulement : chaque jour, au plus 1/`REVERIFICATION_JOURS` des offres actives non relues depuis
+ * `REVERIFICATION_JOURS` jours (les plus anciennes d'abord). Une page disparue (404) expire l'offre ; une page modifiée
+ * la renvoie au résumé. Les modifications sont comptées avec celles du jour (bilan d'écriture).
+ */
+async function reverifier(depot: Depot, source: SourcePages, ctx: ContexteEcriture): Promise<Issue[]> {
+  const candidates = depot.aReverifier(joursAvant(ctx.jour, REVERIFICATION_JOURS - 1));
+  const actives = depot.listerOffres('active').length;
+  const lot = candidates.slice(0, Math.max(1, Math.ceil(actives / REVERIFICATION_JOURS)));
+  const issues: Issue[] = [];
+  for (const o of lot) {
+    const issue = await traiterOffre(depot, source, carteDe(o, depot.recherchesDe(o.id_offre)), ctx, true);
+    if (issue.type === 'retiree') depot.marquerRetiree(o.id_offre);
+    issues.push(issue);
+  }
+  return issues;
 }
 
 function formaterGeo(g: BilanGeo): string[] {
@@ -459,21 +597,25 @@ function formaterGeo(g: BilanGeo): string[] {
 export function formaterBilan(b: BilanCollecte): string {
   const lignes = ['Recherches :'];
   for (const r of b.recherches) {
+    const periode = r.fenetre ? ` [${r.fenetre}]` : r.depuis ? ` [depuis le ${r.depuis}]` : '';
     const ecart =
       (r.ecartees ? `, ${r.ecartees} écartée(s) par le versant` : '') +
-      (r.ecartees_titre
-        ? `, ${r.ecartees_titre} sans les mots-clés dans le titre (aperçu : le texte des offres sera vérifié à la collecte)`
-        : '');
+      (r.ecartees_domaine ? `, ${r.ecartees_domaine} hors domaines` : '');
     const plafond = r.tronquee ? ' — PLAFOND ATTEINT, résultats tronqués' : '';
-    lignes.push(`  ${r.nom} : ${r.total} annoncée(s), ${r.pages} page(s) lue(s)${ecart}${plafond}`);
+    lignes.push(`  ${r.nom}${periode} : ${r.total} annoncée(s), ${r.pages} page(s) lue(s)${ecart}${plafond}`);
   }
   const absentes = b.absentes === null ? `non comptées (${b.partielle})` : String(b.absentes.length);
   const parId = new Map(b.cartes.map((c) => [c.id_offre, c]));
+  const mots = b.ecriture?.mots ?? {};
   const offre = (id: string) => {
-    const c = parId.get(id)!;
+    const c = parId.get(id);
+    // Modifiée à la revérification : plus dans la liste du jour, seul l'identifiant est connu ici.
+    if (!c) return [`  ${id} (revérification)`];
+    const trouves = mots[id]?.length ? `    mots-clés : ${mots[id].join(', ')}` : null;
     return [
       `  ${c.titre} — ${c.employeur ?? '?'} — ${c.localisation ?? '?'} — ${c.date_publication ?? '?'}`,
       `    ${c.url}`,
+      ...(trouves ? [trouves] : []),
     ];
   };
   if (!b.ecriture) {
@@ -495,10 +637,13 @@ export function formaterBilan(b: BilanCollecte): string {
     `  inchangées : ${e.inchangees}`,
     `  republications : ${e.republications.length}`,
     `  pages retirées entre-temps : ${e.pages_retirees.length}`,
+    `  écartées (expérience) : ${e.ecartees.experience.length}`,
+    `  écartées (aucun mot-clé) : ${e.ecartees.mots_cles.length}`,
+    `  déjà écartées (non rouvertes) : ${e.deja_ecartees}`,
     `  absentes : ${absentes}`,
-    `  expirées : ${e.expirees.length}`,
-    `  clôturées (date limite passée) : ${e.cloturees.length}`,
-    `  sans les mots-clés exacts (ignorées) : ${e.hors_mots_cles.length}`,
+    `Revérifiées : ${e.reverifiees}, dont ${e.retirees.length} retirée(s) du site`,
+    `Expirées : ${e.expirees.length + e.retirees.length + e.expirees_age.length} (dont ${e.expirees_age.length} publiées depuis plus de ${DUREE_VIE_JOURS} jours)`,
+    `Clôturées (date limite passée) : ${e.cloturees.length}`,
     `À résumer : ${e.a_resumer}`,
   );
   if (b.geo) lignes.push(...formaterGeo(b.geo));

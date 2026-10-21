@@ -31,17 +31,22 @@ const RESUME = {
   date_prise_poste: null,
 };
 
+/** Le binaire lit l'heure réelle : les cartes sont publiées aujourd'hui pour rester dans la période collectée. */
+const AUJOURDHUI = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+const page = (reference: string, suivante: boolean) => pageMinimale(reference, suivante, AUJOURDHUI);
+
 let site: Awaited<ReturnType<typeof demarrer>>;
 beforeAll(async () => {
   site = await demarrer((req, res) => {
+    // Le filtre de date (collectes suivantes) ne change pas la liste servie.
+    req.url = req.url?.replace(/date-de-publication\/[^/]+\//, '').replace(/filtres\/(page\/|$)/, '$1');
     // Recherche « essai » sans filtre : 2 pages, puis fin.
-    if (req.url === '/nos-offres/') res.writeHead(200, { 'content-type': 'text/html' }).end(pageMinimale('A-1', true));
-    else if (req.url === '/nos-offres/page/2/') res.writeHead(200).end(pageMinimale('B-2', false));
+    if (req.url === '/nos-offres/') res.writeHead(200, { 'content-type': 'text/html' }).end(page('A-1', true));
+    else if (req.url === '/nos-offres/page/2/') res.writeHead(200).end(page('B-2', false));
     else if (req.url === '/nos-offres/filtres/categorie/1807/')
       res.writeHead(200).end('<html><body>refonte</body></html>');
     // Recherche catégorie B : une offre dont la page détail est servie depuis la fixture.
-    else if (req.url === '/nos-offres/filtres/categorie/1806/')
-      res.writeHead(200).end(pageMinimale('2026-2445380', false));
+    else if (req.url === '/nos-offres/filtres/categorie/1806/') res.writeHead(200).end(page('2026-2445380', false));
     else if (req.url === '/offre-emploi/poste-reference-2026-2445380/')
       res.writeHead(200).end(fixture('detail-2026-2445380'));
     // Fausse Géoplateforme : la commune de l'offre de la fixture, et l'adresse de départ fictive.
@@ -159,7 +164,10 @@ describe('csp collecte', () => {
   it('--dry-run parcourt les pages et liste les nouvelles offres sans créer la base', async () => {
     const home = homeComplet();
     const r = await csp(home, 'collecte', '--dry-run');
-    expect(r).toMatchObject({ code: 0, sortie: expect.stringContaining('essai : 9999 annoncée(s), 2 page(s) lue(s)') });
+    expect(r).toMatchObject({
+      code: 0,
+      sortie: expect.stringMatching(/essai \[depuis le .+\] : 9999 annoncée\(s\), 2 page\(s\) lue\(s\)/),
+    });
     expect(r.sortie).toContain('nouvelles : 2');
     expect(r.sortie).toContain(`${site.url}/offre-emploi/poste-reference-B-2/`);
     expect(existsSync(join(home, 'csp.sqlite'))).toBe(false);
@@ -167,7 +175,7 @@ describe('csp collecte', () => {
 
   it('--json renvoie le bilan structuré', async () => {
     const r = await csp(homeComplet(), 'collecte', '--dry-run', '--json');
-    expect(JSON.parse(r.sortie)).toMatchObject({ nouvelles: ['A-1', 'B-2'], absentes: [] });
+    expect(JSON.parse(r.sortie)).toMatchObject({ nouvelles: ['A-1', 'B-2'], absentes: null });
   });
 
   it('sort en code 2 avec l’étape quand la page a changé de structure', async () => {

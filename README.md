@@ -27,7 +27,10 @@ cp .env.example ~/.config/csp-cli/.env
 chmod 600 ~/.config/csp-cli/.env ~/.config/csp-cli/recherches.yaml
 ```
 
-- `recherches.yaml` : recherches lancées chaque jour (mots-clés, localisation, catégories, versants…).
+- `recherches.yaml` : recherches lancées chaque jour. Stratégie ([docs/strategie.md](docs/strategie.md)) : le site renvoie
+  toutes les offres du périmètre (départements, catégories, nature, télétravail, management, publications récentes) ; le
+  domaine est filtré sur la liste, puis chaque offre est ouverte et gardée seulement si l'un des `mots_cles` y figure en
+  mots entiers. Une offre écartée n'est jamais rouverte.
 - `recherches.yaml` donne aussi, par recherche, le point de départ des trajets (`depart` : « Gare d'Austerlitz », adresse ou
   `lat,lon`) ; `csp doctor` affiche le lieu retenu.
 - `.env` : heure de départ des trajets, et fournisseur des
@@ -51,13 +54,13 @@ vp run csp purge [--dry-run] [--json]
 En cas de casse du site (code 2), le diagnostic (étape, sélecteur, URL, HTML de la page) est sauvegardé dans
 `~/.config/csp-cli/diagnostics/<jour>/` ; son chemin est affiché après le message d'erreur.
 
-| Code de sortie | Signification                                            |
-| -------------- | -------------------------------------------------------- |
-| 0              | OK                                                       |
-| 1              | Autre erreur                                             |
-| 2              | Casse du site (structure modifiée)                       |
-| 3              | Site indisponible / réseau                               |
-| 4              | Blocage (captcha, 403, 429) : arrêt, aucun contournement |
+| Code de sortie | Signification                                                                       |
+| -------------- | ----------------------------------------------------------------------------------- |
+| 0              | OK                                                                                  |
+| 1              | Autre erreur                                                                        |
+| 2              | Casse du site (structure modifiée)                                                  |
+| 3              | Site indisponible / réseau (503 : 3 nouvelles tentatives, après 10 s, 25 s et 60 s) |
+| 4              | Blocage (captcha, 403, 429) : arrêt, aucun contournement                            |
 
 ## Développement
 

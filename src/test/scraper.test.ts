@@ -31,13 +31,15 @@ describe('URL de recherche', () => {
       localisation: { departements: ['45', '41'], regions: ['Centre-Val de Loire'] },
       categories: ['A', 'B'],
       type_contrat: ['contractuel'],
-      management: true,
+      management: false,
       teletravail: true,
-      experience: 'confirme',
+      domaines: ['Numérique'],
+      experiences_exclues: ['debutant'],
     });
-    expect(urlRecherche(r, 2).href).toBe(
-      `${site}filtres/mot-cles/chef%20de%20projet%20num%C3%A9rique/localisation/202-263-262/categorie/1805-1806/` +
-        'type/2349-2267/management/1814/teletravail/1814/experience/1834/page/2/',
+    // Ni mot-clé, ni domaine, ni expérience : filtrés localement (stratégie 2).
+    expect(urlRecherche(r, 2, '7_derniers_jours').href).toBe(
+      `${site}filtres/localisation/202-263-262/categorie/1805-1806/type/2349-2267/management/1815/teletravail/1814/` +
+        'date-de-publication/7_derniers_jours/page/2/',
     );
   });
 
@@ -49,12 +51,6 @@ describe('URL de recherche', () => {
     expect(urlRecherche(recherche({ type_contrat: ['titulaire', 'contractuel'] })).pathname).toBe('/nos-offres/');
     expect(urlRecherche(recherche({ type_contrat: ['titulaire'] })).pathname).toBe(
       '/nos-offres/filtres/type/2349-4534/',
-    );
-  });
-
-  it('remplace « / » dans le mot-clé comme le site, et encode le reste', () => {
-    expect(urlRecherche(recherche({ mots_cles: ['RH/paie & co'] })).pathname).toBe(
-      '/nos-offres/filtres/mot-cles/RH---paie%20%26%20co/',
     );
   });
 

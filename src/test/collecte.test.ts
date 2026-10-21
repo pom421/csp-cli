@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
-import { collecte, formaterBilan, verifierResultats } from '../collecte.ts';
+import { collecte, filtrerDetail, formaterBilan, periodeCollecte, verifierResultats } from '../collecte.ts';
 import type { Recherche } from '../config.ts';
 import { Depot } from '../db/depot.ts';
 import type { ChampsCode } from '../db/schema.ts';
@@ -32,6 +32,10 @@ function source(pages: Record<string, string>) {
 
 const base = () => join(mkdtempSync(join(tmpdir(), 'csp-')), 'csp.sqlite');
 const rech = (nom: string, r: Partial<Recherche> = {}): Recherche => ({ nom, mots_cles: [], ...r });
+/** Jour fixe : les cartes des fixtures sont datées d'octobre 2026 (premier import : 30 jours). */
+const AUJOURDHUI = () => new Date('2026-10-21T06:00:00+02:00');
+const apercu = (o: Omit<Parameters<typeof collecte>[0], 'dryRun'>) =>
+  collecte({ dryRun: true, maintenant: AUJOURDHUI, ...o });
 
 function enregistrer(chemin: string, ids: [string, 'active' | 'expiree'][]) {
   const d = new Depot(chemin);
@@ -54,12 +58,26 @@ describe('collecte --dry-run', () => {
       '/nos-offres/filtres/categorie/1805/': fixture('liste-page1'),
       '/nos-offres/filtres/categorie/1805/page/2/': SANS_SUIVANTE(fixture('liste-mot-cle')),
     });
-    const b = await collecte({ dryRun: true, source: s, base: base(), recherches: [rech('a', { categories: ['A'] })] });
+    // Fixtures relevées sur plusieurs mois : premier import sur un an pour les lire en entier.
+    const recherches = [rech('a', { categories: ['A'], premier_import_jours: 365 })];
+    const b = await apercu({ source: s, base: base(), recherches });
     expect(demandees).toEqual(['/nos-offres/filtres/categorie/1805/', '/nos-offres/filtres/categorie/1805/page/2/']);
-    expect(b.recherches).toEqual([{ nom: 'a', pages: 2, total: 53325, ecartees: 0, tronquee: false }]);
+    expect(b.recherches).toEqual([
+      {
+        nom: 'a',
+        pages: 2,
+        total: 53325,
+        ecartees: 0,
+        ecartees_domaine: 0,
+        fenetre: null,
+        depuis: '2025-10-21',
+        tronquee: false,
+      },
+    ]);
     expect(b.cartes).toHaveLength(40);
     expect(b.nouvelles).toHaveLength(40);
-    expect(b.absentes).toEqual([]);
+    // Stratégie 2 : seules les publications récentes sont listées, aucune absence n'est comptée.
+    expect(b.absentes).toBeNull();
   });
 
   it('dédoublonne une offre vue dans deux recherches', async () => {
@@ -79,13 +97,13 @@ describe('collecte --dry-run', () => {
     const page = SANS_SUIVANTE(fixture('liste-page1'));
     const toutes = lirePageListe(page).cartes;
     const { s } = source({ '/nos-offres/': page });
-    const b = await collecte({ dryRun: true, source: s, base: base(), recherches: [rech('a', { versants: ['FPH'] })] });
+    const b = await apercu({ source: s, base: base(), recherches: [rech('a', { versants: ['FPH'] })] });
     const attendues = toutes.filter((c) => c.versant === 'FPH' || c.versant === null);
     expect(b.cartes.map((c) => c.id_offre)).toEqual(attendues.map((c) => c.id_offre).sort());
     expect(b.recherches[0].ecartees).toBe(toutes.length - attendues.length);
   });
 
-  it('compare à la base : nouvelles, connues, réapparues, absentes', async () => {
+  it('compare à la base : nouvelles, connues, réapparues ; absences non comptées', async () => {
     const chemin = base();
     const [c1, c2] = lirePageListe(fixture('liste-page1')).cartes;
     enregistrer(chemin, [
@@ -94,18 +112,18 @@ describe('collecte --dry-run', () => {
       ['DISPARUE-1', 'active'],
     ]);
     const { s } = source({ '/nos-offres/': SANS_SUIVANTE(fixture('liste-page1')) });
-    const b = await collecte({ dryRun: true, source: s, base: chemin, recherches: [rech('a')] });
+    const b = await apercu({ source: s, base: chemin, recherches: [rech('a')] });
     expect(b.connues).toEqual([c1.id_offre]);
     expect(b.reapparues).toEqual([c2.id_offre]);
     expect(b.nouvelles).toHaveLength(18);
-    expect(b.absentes).toEqual(['DISPARUE-1']);
-    expect(formaterBilan(b)).toContain('absentes : 1');
+    expect(b.absentes).toBeNull();
+    expect(formaterBilan(b)).toContain('absentes : non comptées (publications récentes seulement');
   });
 
   it('ne compte aucune absence quand une recherche atteint le plafond de 200 pages', async () => {
     const page = pageMinimale('X-1', true);
     const s: SourcePages = { html: async () => page };
-    const b = await collecte({ dryRun: true, source: s, base: base(), recherches: [rech('large')] });
+    const b = await apercu({ source: s, base: base(), recherches: [rech('large')] });
     expect(b.recherches[0]).toMatchObject({ pages: 200, tronquee: true });
     expect(b.absentes).toBeNull();
     expect(b.partielle).toContain('plafond');
@@ -128,28 +146,38 @@ describe('collecte --dry-run', () => {
   it('ne crée pas la base et n’écrit rien', async () => {
     const chemin = base();
     const { s } = source({ '/nos-offres/': fixture('liste-vide') });
-    await collecte({ dryRun: true, source: s, base: chemin, recherches: [rech('a')] });
+    await apercu({ source: s, base: chemin, recherches: [rech('a')] });
     expect(existsSync(chemin)).toBe(false);
   });
 
-  it('mots_exacts en aperçu : filtre sur le titre seulement, et le dit', async () => {
-    const apercu = (mot: string) =>
-      collecte({
-        dryRun: true,
-        source: source({ [`/nos-offres/filtres/mot-cles/${mot}/`]: pageMinimale('A-1', false) }).s,
-        base: base(),
-        recherches: [rech('a', { mots_cles: [mot], mots_exacts: true })],
-      });
-    // Titre de la carte : « Poste A-1 ».
-    expect((await apercu('Poste')).cartes.map((c) => c.id_offre)).toEqual(['A-1']);
-    const ecartee = await apercu('Pos');
-    expect(ecartee.recherches[0]).toMatchObject({ ecartees_titre: 1 });
-    expect(ecartee.cartes).toEqual([]);
-    expect(formaterBilan(ecartee)).toContain('1 sans les mots-clés dans le titre (aperçu');
+  it('n’envoie jamais les mots-clés au site et ne les applique pas en aperçu (texte non lu)', async () => {
+    const { s, demandees } = source({ '/nos-offres/': pageMinimale('A-1', false) });
+    const b = await apercu({ source: s, base: base(), recherches: [rech('a', { mots_cles: ['react'] })] });
+    expect(demandees).toEqual(['/nos-offres/']);
+    expect(b.cartes.map((c) => c.id_offre)).toEqual(['A-1']);
+  });
+
+  it('écarte sur la carte les domaines non retenus, sans toucher aux cartes sans domaine', async () => {
+    const page = SANS_SUIVANTE(fixture('liste-page1'));
+    const toutes = lirePageListe(page).cartes;
+    const { s } = source({ '/nos-offres/': page });
+    const b = await apercu({ source: s, base: base(), recherches: [rech('a', { domaines: ['numerique'] })] });
+    const attendues = toutes.filter((c) => c.domaine === null || c.domaine === 'Numérique');
+    expect(b.cartes.map((c) => c.id_offre)).toEqual(attendues.map((c) => c.id_offre).sort());
+    expect(b.recherches[0].ecartees_domaine).toBe(toutes.length - attendues.length);
+    expect(formaterBilan(b)).toContain(`${toutes.length - attendues.length} hors domaines`);
+  });
+
+  it('s’arrête à la première carte publiée avant la période et l’ignore', async () => {
+    const vieille = pageMinimale('V-1', true).replace('1er octobre 2026', '3 septembre 2026');
+    const { s, demandees } = source({ '/nos-offres/': vieille });
+    const b = await apercu({ source: s, base: base(), recherches: [rech('a')] });
+    expect(demandees).toEqual(['/nos-offres/']);
+    expect(b.cartes).toEqual([]);
   });
 
   it('refuse une recherche inconnue', async () => {
-    await expect(collecte({ dryRun: true, recherche: 'zzz', recherches: [rech('a')] })).rejects.toThrow('inconnue');
+    await expect(apercu({ recherche: 'zzz', recherches: [rech('a')] })).rejects.toThrow('inconnue');
   });
 });
 
@@ -179,13 +207,14 @@ describe('collecte (écriture)', () => {
 
   function contexte() {
     const dossier = mkdtempSync(join(tmpdir(), 'csp-'));
-    let jour = 19;
+    let decalage = 0;
     return {
       base: join(dossier, 'csp.sqlite'),
       dossierBrut: join(dossier, 'brut'),
       dossierDiagnostics: join(dossier, 'diagnostics'),
-      lendemain: () => jour++,
-      maintenant: () => new Date(`2026-10-${String(jour).padStart(2, '0')}T06:00:00+02:00`),
+      lendemain: () => decalage++,
+      avancer: (jours: number) => (decalage += jours),
+      maintenant: () => new Date(Date.parse('2026-10-19T06:00:00+02:00') + decalage * 86_400_000),
     };
   }
 
@@ -202,8 +231,16 @@ describe('collecte (écriture)', () => {
     chercher: async (q, mode) => (mode === 'commune' && communes[q]) || [],
   };
 
+  /** La liste du faux site est la même quels que soient les filtres (fenêtre de date comprise). */
   const lancer = (ctx: ReturnType<typeof contexte>, s: SourcePages, r: Partial<Parameters<typeof collecte>[0]> = {}) =>
-    collecte({ dryRun: false, source: s, recherches: [rech('essai')], geocodage, ...ctx, ...r });
+    collecte({
+      dryRun: false,
+      recherches: [rech('essai')],
+      geocodage,
+      ...ctx,
+      ...r,
+      source: sansFiltres(r.source ?? s),
+    });
 
   it('enregistre les nouvelles offres, écrit les textes bruts en 0600 sans coordonnées, met la file à jour', async () => {
     const ctx = contexte();
@@ -294,14 +331,54 @@ describe('collecte (écriture)', () => {
     d.fermer();
   });
 
-  it('expire une offre absente de 3 collectes complètes', async () => {
+  it('lit la veille avec le filtre 48 h du site, puis 7 ou 14 jours après une interruption', async () => {
+    const ctx = contexte();
+    const { s } = site([A]);
+    const demandees: string[] = [];
+    const filtres: SourcePages = {
+      html: (url, etape) => {
+        demandees.push(url.pathname);
+        return sansFiltres(s).html(url, etape);
+      },
+    };
+    await collecte({ dryRun: false, recherches: [rech('essai')], geocodage, ...ctx, source: filtres });
+    ctx.lendemain();
+    await collecte({ dryRun: false, recherches: [rech('essai')], geocodage, ...ctx, source: filtres });
+    ctx.avancer(5);
+    await collecte({ dryRun: false, recherches: [rech('essai')], geocodage, ...ctx, source: filtres });
+    expect(demandees.filter((p) => p.startsWith('/nos-offres/'))).toEqual([
+      '/nos-offres/',
+      '/nos-offres/filtres/date-de-publication/dernieres_48_heures/',
+      '/nos-offres/filtres/date-de-publication/7_derniers_jours/',
+    ]);
+  });
+
+  it('revérifie par roulement les offres qui ne sont plus listées ; une page disparue les expire', async () => {
     const ctx = contexte();
     await lancer(ctx, site([A, B]).s);
-    for (const jour of [1, 2, 3]) {
-      ctx.lendemain();
-      const b = await lancer(ctx, site([A]).s);
-      expect(b.ecriture!.expirees).toEqual(jour === 3 ? [B] : []);
-    }
+    ctx.avancer(8);
+    // Plus aucune publication récente ; A a été retirée du site, B est inchangée.
+    const pages: Record<string, string> = {
+      '/nos-offres/': fixture('liste-vide'),
+      [urlDetail(B)]: fixture(`detail-${B}`),
+    };
+    const retiree: SourcePages = {
+      html: (url, etape) =>
+        url.pathname === urlDetail(A)
+          ? Promise.reject(new PageAbsenteError('HTTP 404'))
+          : source(pages).s.html(url, etape),
+    };
+    // 2 offres actives : 1 relue par jour (1/7, au moins 1), la plus ancienne d'abord (A, par identifiant).
+    const j1 = await lancer(ctx, retiree);
+    expect(j1.ecriture).toMatchObject({ reverifiees: 1, retirees: [A] });
+    ctx.lendemain();
+    const j2 = await lancer(ctx, retiree);
+    expect(j2.ecriture).toMatchObject({ reverifiees: 1, retirees: [], inchangees: 1 });
+    const d = new Depot(ctx.base);
+    expect(d.obtenirOffre(A)!.statut).toBe('expiree');
+    expect(d.obtenirOffre(B)).toMatchObject({ statut: 'active', date_derniere_vue: '2026-10-28' });
+    d.fermer();
+    expect(formaterBilan(j1)).toContain('Revérifiées : 1, dont 1 retirée(s) du site');
   });
 
   it('ne compte pas d’absence sur une collecte partielle (--recherche)', async () => {
@@ -368,7 +445,8 @@ describe('collecte (écriture)', () => {
     const ctx = contexte();
     const ids = [A, B, '2025-2136140', 'DEF_30-00069655', 'MEF_2026-32647'];
     await lancer(ctx, site(ids).s);
-    ctx.lendemain();
+    // Au-delà de 14 jours sans collecte, la liste est lue sans filtre de date : le garde-fou s'applique.
+    ctx.avancer(20);
     const vide = source({ '/nos-offres/': fixture('liste-vide') }).s;
     await expect(lancer(ctx, vide)).rejects.toMatchObject({ code: 2, etape: 'resultat-suspect' });
     const d = new Depot(ctx.base);
@@ -431,23 +509,44 @@ describe('collecte (écriture)', () => {
     expect(formaterBilan(b)).toContain('essai, depuis 47.85, 1.92 : 2 calculé(s)');
   });
 
-  it('mots_exacts : ne garde que les offres qui contiennent un mot-clé en mots entiers, titre ou texte', async () => {
+  it('mots-clés : ne garde que les offres qui en contiennent un en mots entiers, mémorise et ne rouvre pas les autres', async () => {
     const ctx = contexte();
     // B (« développement culturel ») contient « culturel » ; A (recrutement, rectorat de Nice) ne le contient pas.
-    const recherches = [rech('essai', { mots_cles: ['culturel', 'react'], mots_exacts: true })];
-    const b = await lancer(ctx, sansFiltres(site([A, B]).s), { recherches });
-    expect(b.ecriture).toMatchObject({ nouvelles: [B], hors_mots_cles: [A], a_resumer: 1 });
-    const partiel = await lancer(contexte(), sansFiltres(site([B]).s), {
-      recherches: [rech('essai', { mots_cles: ['cultur'], mots_exacts: true })],
+    const recherches = [rech('essai', { mots_cles: ['culturel', 'react'] })];
+    const b = await lancer(ctx, site([A, B]).s, { recherches });
+    expect(b.ecriture).toMatchObject({
+      nouvelles: [B],
+      ecartees: { mots_cles: [A], experience: [] },
+      mots: { [B]: ['culturel'] },
+      a_resumer: 1,
     });
-    expect(partiel.ecriture).toMatchObject({ nouvelles: [], hors_mots_cles: [B] });
-    expect(formaterBilan(b)).toContain('sans les mots-clés exacts (ignorées) : 1');
+    expect(formaterBilan(b)).toContain('écartées (aucun mot-clé) : 1');
+    expect(formaterBilan(b)).toContain('mots-clés : culturel');
+    // Texte gardé (coordonnées retirées) pour rejouer le filtre si les mots changent.
+    const texte = join(ctx.dossierBrut, 'ecartees', `${A}.txt`);
+    expect(statSync(texte).mode & 0o777).toBe(0o600);
+    expect(readFileSync(texte, 'utf8')).not.toMatch(/@/);
+    ctx.lendemain();
+    const { s, demandees } = site([A, B]);
+    const lendemain = await lancer(ctx, s, { recherches });
+    expect(lendemain.ecriture).toMatchObject({ deja_ecartees: 1, inchangees: 1 });
+    expect(demandees).not.toContain(urlDetail(A));
+    const partiel = await lancer(contexte(), site([B]).s, { recherches: [rech('essai', { mots_cles: ['cultur'] })] });
+    expect(partiel.ecriture).toMatchObject({ nouvelles: [], ecartees: { mots_cles: [B] } });
   });
 
-  it('mots_exacts ne filtre que sa recherche : une offre gardée par une autre recherche est enregistrée', async () => {
+  it('écarte l’expérience exclue, garde l’expérience non renseignée', async () => {
     const ctx = contexte();
-    const recherches = [rech('stricte', { mots_cles: ['react'], mots_exacts: true }), rech('large')];
-    const b = await lancer(ctx, sansFiltres(site([A]).s), { recherches });
+    const DEBUTANT = 'DEF_30-00069655';
+    const recherches = [rech('essai', { experiences_exclues: ['debutant'] })];
+    const b = await lancer(ctx, site([A, DEBUTANT]).s, { recherches });
+    expect(b.ecriture).toMatchObject({ nouvelles: [A], ecartees: { experience: [DEBUTANT], mots_cles: [] } });
+  });
+
+  it('les mots-clés ne filtrent que leur recherche : une offre gardée par une autre recherche est enregistrée', async () => {
+    const ctx = contexte();
+    const recherches = [rech('stricte', { mots_cles: ['react'] }), rech('large')];
+    const b = await lancer(ctx, site([A]).s, { recherches });
     expect(b.ecriture).toMatchObject({ nouvelles: [A] });
     const d = new Depot(ctx.base);
     expect(d.recherchesDe(A)).toEqual(['large']);
@@ -482,10 +581,62 @@ describe('collecte (écriture)', () => {
 });
 
 describe('garde-fou des résultats', () => {
-  const resultat = (nom: string, total: number) => ({ nom, pages: 1, total, cartes: [], ecartees: 0, tronquee: false });
+  const resultat = (nom: string, total: number, fenetre: string | null = null) => ({
+    nom,
+    pages: 1,
+    total,
+    cartes: [],
+    ecartees: 0,
+    ecartees_domaine: 0,
+    fenetre,
+    depuis: null,
+    tronquee: false,
+  });
   it('ne s’alarme qu’à partir de 5 offres actives perdues d’un coup', () => {
     expect(() => verifierResultats([resultat('a', 0)], new Map([['a', 4]]))).not.toThrow();
     expect(() => verifierResultats([resultat('a', 3)], new Map([['a', 50]]))).not.toThrow();
     expect(() => verifierResultats([resultat('a', 0)], new Map([['a', 5]]))).toThrow('0 offre annoncée');
+  });
+
+  it('se tait quand le filtre de date du site est appliqué (une journée sans publication est normale)', () => {
+    expect(() => verifierResultats([resultat('a', 0, 'dernieres_48_heures')], new Map([['a', 50]]))).not.toThrow();
+  });
+});
+
+describe('période de collecte', () => {
+  const r = rech('a');
+  it('premier import : 30 jours, ou premier_import_jours', () => {
+    expect(periodeCollecte(null, '2026-10-21', r)).toEqual({ depuis: '2026-09-21' });
+    expect(periodeCollecte(null, '2026-10-21', rech('a', { premier_import_jours: 7 }))).toEqual({
+      depuis: '2026-10-14',
+    });
+  });
+
+  it('ensuite : la plus courte fenêtre du site qui couvre depuis la dernière collecte, avec un jour de marge', () => {
+    expect(periodeCollecte('2026-10-20', '2026-10-21', r)).toEqual({ fenetre: 'dernieres_48_heures' });
+    expect(periodeCollecte('2026-10-19', '2026-10-21', r)).toEqual({ fenetre: '7_derniers_jours' });
+    expect(periodeCollecte('2026-10-14', '2026-10-21', r)).toEqual({ fenetre: '14_derniers_jours' });
+    expect(periodeCollecte('2026-10-01', '2026-10-21', r)).toEqual({ depuis: '2026-09-29' });
+  });
+});
+
+describe('filtres [Détail]', () => {
+  const recherches = new Map([
+    ['ia', rech('ia', { mots_cles: ['ia', 'intelligence artificielle'], experiences_exclues: ['debutant'] })],
+    ['tout', rech('tout')],
+  ]);
+  const detail = (texte_brut: string, experience: 'debutant' | 'confirme' | null = null) => ({
+    titre: 'Poste',
+    texte_brut,
+    experience,
+  });
+  it('mots entiers, sans casse ni accents ; motif d’écart', () => {
+    expect(filtrerDetail(['ia'], recherches, detail('Projet d’IA générative'))).toEqual({
+      gardee_par: ['ia'],
+      mots: ['ia'],
+    });
+    expect(filtrerDetail(['ia'], recherches, detail('Via la DSI'))).toEqual({ motif: 'mots_cles' });
+    expect(filtrerDetail(['ia'], recherches, detail('IA', 'debutant'))).toEqual({ motif: 'experience' });
+    expect(filtrerDetail(['ia', 'tout'], recherches, detail('rien'))).toEqual({ gardee_par: ['tout'], mots: [] });
   });
 });

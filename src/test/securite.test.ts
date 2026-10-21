@@ -116,12 +116,22 @@ describe('accès réseau', () => {
     await site.fermer();
   });
 
-  it('classe HTTP 503 et serveur injoignable en indisponibilité (code 3)', async () => {
+  it('retente un 503 trois fois, puis classe en indisponibilité (code 3) ; serveur injoignable aussi', async () => {
     const site = await demarrer((_req, res) => res.writeHead(503).end());
     process.env.CSP_SITE_URL = site.url;
-    await expect(obtenir(`${site.url}/`)).rejects.toBeInstanceOf(IndisponibleError);
+    await expect(obtenir(`${site.url}/`)).rejects.toThrow('HTTP 503 après 4 essais');
+    expect(site.requetes).toHaveLength(4);
     await site.fermer();
     await expect(obtenir(`${site.url}/`)).rejects.toBeInstanceOf(IndisponibleError);
+  });
+
+  it('un 503 passager est absorbé par une nouvelle tentative', async () => {
+    let n = 0;
+    const site = await demarrer((_req, res) => res.writeHead(++n === 1 ? 503 : 200).end('ok'));
+    process.env.CSP_SITE_URL = site.url;
+    await expect(obtenir(`${site.url}/`)).resolves.toMatchObject({ statut: 200, texte: 'ok' });
+    expect(site.requetes).toHaveLength(2);
+    await site.fermer();
   });
 
   it('espace les requêtes vers une même origine', async () => {

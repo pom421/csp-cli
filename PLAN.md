@@ -96,7 +96,7 @@ Tâche planifiée Claude (6h, Mac allumé)
 - **Pagination plafonnée à 200 pages** (4 000 offres) → recherche qui atteint le plafond = collecte incomplète (pas d'expiration), signalée dans le rapport ; garder des recherches étroites
 - **Contacts recruteurs dans le texte libre** (noms, e-mails) → jamais en base ; e-mails et téléphones retirés du texte brut avant écriture sur disque
 - **Filtres du site peu fiables** (versant, géolocalisation) → filtrage local, libellé inconnu conservé plutôt qu'écarté
-- **Recherche par mot-clé très large** (« react » → 8 785 offres en France : « réactivité », « réacteurs », « REACH » ; les guillemets ne changent rien) → option `mots_exacts` : mot-clé en mots entiers dans le titre ou le texte, vérifié après lecture du détail (titre seulement en `--dry-run`) ; offre écartée ni enregistrée ni résumée
+- **Recherche par mot-clé très large** (« react » → 8 785 offres en France : « réactivité », « réacteurs », « REACH » ; les guillemets ne changent rien ; plusieurs mots se comportent comme un ET) → stratégie 2 ([docs/strategie.md](docs/strategie.md)) : aucun mot-clé envoyé au site, mots cherchés en mots entiers dans le texte après lecture du détail ; offre écartée mémorisée (jamais rouverte), ni enregistrée ni résumée
 - **Texte du site affiché au terminal** → caractères de contrôle retirés à la normalisation (pas d'injection de séquences d'échappement)
 - **Migration générée qui recrée une table** (drizzle-kit) → `ON DELETE CASCADE` viderait les tables liées : `ALTER TABLE … ADD` écrit à la main, test de migration avec données
 - **Lieu en texte libre** (« DDETSPP - PÔLE ADM - 31 Mail Charlot - 41000 BLOIS », « ORLEANS CEDEX 2 », « Université d'Orléans », « Loiret (45), France ») → nettoyage (CEDEX, nom du service, département), requêtes de la plus précise à la plus grossière, score minimal, département vérifié (homonymes : Billy 03 / Billy 41) ; lieu introuvable mis en cache aussi
@@ -214,15 +214,17 @@ Tâche planifiée Claude (6h, Mac allumé)
 
 ```yaml
 recherches:
-  - nom: numerique-orleans
-    mots_cles: ['chef de projet', 'numérique']
-    mots_exacts: true
-    localisation: { departements: ['45', '41'] }
+  - nom: orleans
+    localisation: { departements: ['45'] } # [Site]
     depart: "Gare d'Orléans"
-    teletravail: true
-    categories: [A]
-    versants: [FPE, FPT]
-    type_contrat: [titulaire, contractuel]
+    categories: [A+, A] # [Site]
+    type_contrat: [titulaire] # [Site]
+    teletravail: true # [Site] true : oui exigé, false : non exigé
+    management: false # [Site]
+    domaines: [Numérique, Direction et pilotage des politiques publiques] # [Carte]
+    experiences_exclues: [debutant] # [Détail]
+    mots_cles: [typescript, python, devops, ia] # [Détail], jamais envoyés au site
+    premier_import_jours: 30
 ```
 
 `~/.config/csp-cli/.env`
@@ -231,9 +233,9 @@ recherches:
 CSP_HEURE_DEPART=08:00
 ```
 
-Correspondance avec les identifiants du site : `src/scraper/referentiel.ts`. `departements` / `regions` sont filtrés par le site ;
-`versants` et `mots_exacts` sont filtrés localement (le site ne les filtre pas de façon fiable, voir docs/reconnaissance.md) ;
-`depart` ne sert qu'aux trajets.
+Correspondance avec les identifiants du site : `src/scraper/referentiel.ts`. Où s'applique chaque filtre ([Site], [Carte],
+[Détail]) et pourquoi : [docs/strategie.md](docs/strategie.md). Le code ajoute le filtre de date du site (48 h, 7 ou 14 jours
+selon la dernière collecte réussie ; premier import : `premier_import_jours`). `depart` ne sert qu'aux trajets.
 
 ## 10. Base SQLite
 

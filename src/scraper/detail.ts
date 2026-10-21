@@ -3,7 +3,7 @@ import type { AnyNode } from 'domhandler';
 import { CasseError } from '../erreurs.ts';
 import type { Offre } from '../db/schema.ts';
 import { analyser, tous, texte, un, type Element, type Noeud } from './dom.ts';
-import { dateNumerique, empreinte, normaliserTexte } from './normalisation.ts';
+import { cleComparaison, dateNumerique, empreinte, normaliserTexte } from './normalisation.ts';
 import { ACCORDEONS_UTILES, DATE_LIMITE, DETAIL, LIBELLES_DETAIL, NON_RENSEIGNE, VACANCE } from './selecteurs.ts';
 
 export interface Detail {
@@ -19,6 +19,8 @@ export interface Detail {
   type_contrat: Offre['type_contrat'];
   management: boolean | null;
   teletravail_possible: boolean | null;
+  /** « Expérience souhaitée » ; `null` si non renseignée ou inconnue. Filtre seulement, pas en base. */
+  experience: Experience | null;
   metier: string | null;
   domaine: string | null;
   date_publication: string | null;
@@ -88,6 +90,14 @@ function ouiNon(t: string | null): boolean | null {
 function categorie(t: string | null): Offre['categorie'] {
   const m = t && /cat[ée]gorie\s+(A\+|A|B|C)(?![\w+])/i.exec(t);
   return m ? (m[1].toUpperCase() as Offre['categorie']) : null;
+}
+
+export const EXPERIENCES = ['debutant', 'confirme', 'expert'] as const;
+export type Experience = (typeof EXPERIENCES)[number];
+
+function experience(t: string | null): Experience | null {
+  const cle = t ? cleComparaison(t) : '';
+  return EXPERIENCES.find((e) => cle.startsWith(e)) ?? null;
 }
 
 function nature(t: string | null): Offre['type_contrat'] {
@@ -189,6 +199,7 @@ export function lireDetail(html: string, idAttendu: string): Detail {
     type_contrat: nature(cellules.get(LIBELLES_DETAIL.nature) ?? null),
     management: ouiNon(valeur(cellules.get(LIBELLES_DETAIL.management))),
     teletravail_possible: ouiNon(valeur(cellules.get(LIBELLES_DETAIL.teletravail))),
+    experience: experience(valeur(cellules.get(LIBELLES_DETAIL.experience))),
     metier: valeur(accordeons.get(LIBELLES_DETAIL.metier)?.split('\n')[0]),
     domaine: valeur(normaliserTexte(jsonLd.industry ?? '')) ?? null,
     date_publication: jsonLd.datePosted ? dateNumerique(jsonLd.datePosted) : null,
