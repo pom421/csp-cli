@@ -134,8 +134,9 @@ Sitemap: https://choisirleservicepublic.gouv.fr/sitemapindex.xml
 
 ## Taille des pages
 
-- Liste : **≈ 4,4 Mo** par page (le formulaire de filtres embarque toutes les cases à cocher). 1 recherche de 5 pages ≈ 22 Mo.
-- Détail : ≈ 215 Ko.
+- Liste : **≈ 4,5 Mo décompressés** par page, dont 4,5 Mo de formulaire de filtres (2 823 cases à cocher) ; **≈ 190 Ko
+  transférés** (gzip, demandé par `fetch` : `accept-encoding: gzip, deflate`). Mesuré le 21/10/2026.
+- Détail : ≈ 215 Ko décompressés.
 
 ## Vérifié en phase 3
 
