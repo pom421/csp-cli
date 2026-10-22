@@ -535,6 +535,20 @@ describe('collecte (écriture)', () => {
     expect(partiel.ecriture).toMatchObject({ nouvelles: [], ecartees: { mots_cles: [B] } });
   });
 
+  it('signale sa progression : pages lues, puis chaque offre ouverte avec son issue', async () => {
+    const lignes: string[] = [];
+    await lancer(contexte(), site([A, B]).s, {
+      recherches: [rech('essai', { mots_cles: ['culturel'] })],
+      suivi: (m) => lignes.push(m),
+    });
+    expect(lignes[0]).toMatch(/^essai : page 1 lue, 2 offre\(s\)/);
+    expect(lignes).toContain('2 offre(s) à ouvrir');
+    expect(lignes.some((l) => l.startsWith('  1/2 écartée (aucun mot-clé) : Poste ') && l.includes('reste ~'))).toBe(
+      true,
+    );
+    expect(lignes).toContain(`  2/2 retenue (culturel) : Poste ${B}`);
+  });
+
   it('écarte l’expérience exclue, garde l’expérience non renseignée', async () => {
     const ctx = contexte();
     const DEBUTANT = 'DEF_30-00069655';

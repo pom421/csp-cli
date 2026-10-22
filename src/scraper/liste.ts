@@ -137,6 +137,7 @@ export async function parcourirRecherche(
   source: SourcePages,
   recherche: Recherche,
   periode: Periode = {},
+  suivi?: (message: string) => void,
 ): Promise<ResultatRecherche> {
   const cartes: Carte[] = [];
   let total = 0;
@@ -159,6 +160,9 @@ export async function parcourirRecherche(
       (c) => !periode.depuis || !c.date_publication || c.date_publication >= periode.depuis,
     );
     cartes.push(...recentes);
+    suivi?.(
+      `${recherche.nom} : page ${page} lue, ${cartes.length} offre(s) retenue(s) pour la période (${total} au total)`,
+    );
     if (!lue.suivante || lue.cartes.length === 0 || recentes.length < lue.cartes.length) break;
     if (page === PAGES_MAX) {
       tronquee = true;
