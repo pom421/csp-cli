@@ -41,9 +41,17 @@ interface Props {
   onChange: (f: Filtres) => void;
   recherches: RechercheWeb[];
   departements: string[];
+  /** Libellés exacts des employeurs, avec leur nombre d'offres. */
+  employeurs: { libelle: string; nombre: number }[];
 }
 
-export function PanneauFiltres({ filtres: f, onChange, recherches, departements }: Props) {
+/** Option du choix de structure : sigle puis libellé complet, quand ils diffèrent. */
+function libelleStructure(libelle: string): string {
+  const court = format.structure(libelle);
+  return court === libelle ? libelle : `${court} — ${libelle.replace(/\s*\([^()]*\)\s*$/, '')}`;
+}
+
+export function PanneauFiltres({ filtres: f, onChange, recherches, departements, employeurs }: Props) {
   const poser = (partiel: Partial<Filtres>) => onChange({ ...f, ...partiel });
   const nb = nombreFiltres(f);
   return (
@@ -78,7 +86,7 @@ export function PanneauFiltres({ filtres: f, onChange, recherches, departements 
         </Groupe>
       )}
 
-      <Groupe titre="Vues pour la première fois">
+      <Groupe titre="Publiées depuis">
         <ToggleGroup
           type="single"
           value={f.periode}
@@ -173,6 +181,24 @@ export function PanneauFiltres({ filtres: f, onChange, recherches, departements 
           <ToggleGroupItem value="non">Sans</ToggleGroupItem>
         </ToggleGroup>
       </Groupe>
+
+      {employeurs.length > 1 && (
+        <Groupe titre="Structure">
+          <Select value={f.employeur ?? TOUTES} onValueChange={(v) => poser({ employeur: v === TOUTES ? null : v })}>
+            <SelectTrigger aria-label="Structure" className="w-full" title={f.employeur ?? undefined}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={TOUTES}>Toutes les structures</SelectItem>
+              {employeurs.map((e) => (
+                <SelectItem key={e.libelle} value={e.libelle} title={e.libelle}>
+                  {libelleStructure(e.libelle)} ({e.nombre})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Groupe>
+      )}
 
       {departements.length > 1 && (
         <Groupe titre="Département">

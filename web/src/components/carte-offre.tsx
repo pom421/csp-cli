@@ -51,7 +51,11 @@ export function CarteOffre({ offre, aujourdhui, recherche, onOuvrir }: Props) {
           <Indices offre={offre} aujourdhui={aujourdhui} />
         </div>
         <CardTitle className="line-clamp-2 text-base group-hover:text-primary">{offre.titre}</CardTitle>
-        {offre.employeur && <CardDescription className="line-clamp-1">{offre.employeur}</CardDescription>}
+        {offre.employeur && (
+          <CardDescription className="line-clamp-1" title={offre.employeur}>
+            {format.structure(offre.employeur)}
+          </CardDescription>
+        )}
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex flex-wrap gap-1.5">
