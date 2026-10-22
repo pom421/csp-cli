@@ -71,6 +71,9 @@ Relevé du site : [docs/reconnaissance.md](docs/reconnaissance.md). Stratégie d
   option avant d'en parler, préciser où se fait chaque traitement ([Site], [Carte], [Détail], [LLM]). **Signaler** toute
   demande qui diverge de la stratégie et toute estimation revue, avant d'agir ; tenir le document à jour.
 - Questions à trancher par le propriétaire : **toujours numérotées** (1., 2., …), pour qu'il puisse y répondre par numéro.
+- Interface (`csp web`) : **demander avant** tout changement de mise en page ou d'ergonomie (disposition, panneaux,
+  navigation, filtres retirés ou déplacés) ; décrire le changement proposé et attendre l'accord. Ajouter un élément
+  à l'existant sans rien déplacer reste possible, en le signalant.
 - Git : une branche par sujet, PR **jamais en brouillon**, commits et PR en français, sans ligne d'attribution.
 - Merger **uniquement sur demande explicite** du propriétaire, après CI verte (réparation de casse : ne jamais merger).
 - Lancer l'outil avec `vp run csp …` : les scripts ne sont jamais mis en cache (un cache rejouerait un bilan sans rien
