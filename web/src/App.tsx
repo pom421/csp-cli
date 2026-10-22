@@ -120,10 +120,24 @@ function Vue({
     () => [...new Set(offres.map((o) => o.departement).filter((d): d is string => d !== null))].sort(),
     [offres],
   );
+  // Structures triées par nom court (« DINUM », « Préfecture de Police de Paris »…), avec leur nombre d'offres.
+  const employeurs = useMemo(() => {
+    const nombres = new Map<string, number>();
+    for (const o of offres) if (o.employeur) nombres.set(o.employeur, (nombres.get(o.employeur) ?? 0) + 1);
+    return [...nombres]
+      .map(([libelle, nombre]) => ({ libelle, nombre }))
+      .sort((a, b) => format.structure(a.libelle).localeCompare(format.structure(b.libelle), 'fr'));
+  }, [offres]);
   const offreOuverte = offres.find((o) => o.id_offre === ouverte) ?? null;
   const nb = nombreFiltres(filtres);
   const panneau = (
-    <PanneauFiltres filtres={filtres} onChange={setFiltres} recherches={recherches} departements={departements} />
+    <PanneauFiltres
+      filtres={filtres}
+      onChange={setFiltres}
+      recherches={recherches}
+      departements={departements}
+      employeurs={employeurs}
+    />
   );
 
   return (

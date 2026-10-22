@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import type { OffreWeb } from '../../../src/web/contrat.ts';
 import { depuisUrl, FILTRES_PAR_DEFAUT, filtrer, trajetDe, trier, versUrl, type Filtres } from './filtres.ts';
-import { remuneration, trajet } from './format.ts';
+import { remuneration, structure, trajet } from './format.ts';
 
 const AUJOURDHUI = '2026-10-20';
 
@@ -76,14 +76,22 @@ describe('filtres', () => {
     expect(ids(filtrer(offres, avec({ contrats: ['contractuel'] }), AUJOURDHUI))).toEqual(['b', 'c']);
   });
 
-  it('période : vues pour la première fois depuis N jours', () => {
+  it('période : publiées sur le site depuis N jours (pas la date d’arrivée en base) ; sans date, écartée', () => {
     const offres = [
-      offre('a'),
-      offre('b', { date_premiere_vue: '2026-10-15' }),
-      offre('c', { date_premiere_vue: '2026-09-01' }),
+      offre('a', { date_publication: AUJOURDHUI, date_premiere_vue: '2026-09-01' }),
+      offre('b', { date_publication: '2026-10-15' }),
+      offre('c', { date_publication: '2026-09-01', date_premiere_vue: AUJOURDHUI }),
+      offre('d', { date_publication: null }),
     ];
     expect(ids(filtrer(offres, avec({ periode: '1' }), AUJOURDHUI))).toEqual(['a']);
     expect(ids(filtrer(offres, avec({ periode: '7' }), AUJOURDHUI))).toEqual(['a', 'b']);
+  });
+
+  it('structure : libellé exact de l’employeur', () => {
+    const offres = [offre('a', { employeur: 'Direction Interministérielle du Numérique (DINUM)' }), offre('b')];
+    const f = avec({ employeur: 'Direction Interministérielle du Numérique (DINUM)' });
+    expect(ids(filtrer(offres, f, AUJOURDHUI))).toEqual(['a']);
+    expect(depuisUrl(versUrl(f)).employeur).toBe(f.employeur);
   });
 
   it('trajet maximum : écarte les trajets inconnus', () => {
@@ -168,5 +176,14 @@ describe('format', () => {
     expect(remuneration({ remuneration_min: null, remuneration_max: null })).toBeNull();
     expect(trajet({ duree_min: 80, nb_correspondances: 2 }, true)).toBe('1 h 20 · 2 correspondances');
     expect(trajet(null)).toBe('aucun itinéraire');
+  });
+
+  it('nom court d’une structure : sigle final entre parenthèses, ou sigle de tête devant un long libellé', () => {
+    expect(structure('Direction Interministérielle du Numérique (DINUM)')).toBe('DINUM');
+    expect(structure('Agence Régionale de Santé Ile-de-France (ARS Ile-de-France)')).toBe('ARS Ile-de-France');
+    expect(structure("SARH - Service d'Appui aux Ressources Humaines")).toBe('SARH');
+    expect(structure('GIP - Pix')).toBe('GIP - Pix');
+    expect(structure('Préfecture de Police de Paris')).toBe('Préfecture de Police de Paris');
+    expect(structure('(ANSSI)')).toBe('(ANSSI)');
   });
 });

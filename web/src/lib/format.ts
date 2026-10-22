@@ -23,6 +23,19 @@ export function remuneration(o: Pick<OffreWeb, 'remuneration_min' | 'remuneratio
   return null;
 }
 
+/**
+ * Nom court d'une structure : le sigle entre parenthèses en fin de libellé (« Direction Interministérielle du Numérique
+ * (DINUM) » → « DINUM »), ou le sigle de tête suivi d'un long libellé (« SARH - Service d'Appui aux Ressources
+ * Humaines » → « SARH ») ; sinon le libellé entier (coupé à l'affichage, complet au survol).
+ */
+export function structure(libelle: string): string {
+  const fin = /\(([^()]{2,25})\)\s*$/.exec(libelle);
+  if (fin && fin.index > 0) return fin[1].trim();
+  const tete = /^([A-Z][A-Z0-9]{1,9})\s*-\s*(.+)$/.exec(libelle);
+  if (tete && tete[2].length >= 20) return tete[1];
+  return libelle;
+}
+
 /** « 45 min », « 1 h 20 » ; « 2 corresp. » en option. */
 export function duree(minutes: number): string {
   if (minutes < 60) return `${minutes} min`;

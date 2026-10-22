@@ -19,7 +19,7 @@ export interface Filtres {
   /** Une recherche de recherches.yaml ; `null` : toutes. Choisit aussi le point de départ des trajets. */
   recherche: string | null;
   statuts: StatutOffre[];
-  /** Offres vues pour la première fois depuis N jours. */
+  /** Offres publiées sur le site depuis N jours (date du site ; une offre sans date est écartée dès que ce filtre est posé). */
   periode: Periode;
   versants: Versant[];
   categories: Categorie[];
@@ -28,6 +28,8 @@ export interface Filtres {
   teletravail: boolean;
   management: Management;
   departements: string[];
+  /** Libellé exact de l'employeur ; `null` : toutes les structures. */
+  employeur: string | null;
   /** Minutes ; une offre sans trajet connu est écartée dès que ce filtre est posé. */
   trajetMax: number | null;
   tri: Tri;
@@ -45,6 +47,7 @@ export const FILTRES_PAR_DEFAUT: Filtres = {
   teletravail: false,
   management: 'tous',
   departements: [],
+  employeur: null,
   trajetMax: null,
   tri: 'recentes',
 };
@@ -125,7 +128,9 @@ export function filtrer(offres: OffreWeb[], f: Filtres, aujourdhui: string): Off
   return offres.filter((o) => {
     if (f.statuts.length && !f.statuts.includes(o.statut)) return false;
     if (f.recherche !== null && !o.recherches.includes(f.recherche)) return false;
-    if (f.periode !== 'tout' && ecartJours(o.date_premiere_vue, aujourdhui) >= Number(f.periode)) return false;
+    if (f.periode !== 'tout') {
+      if (!o.date_publication || ecartJours(o.date_publication, aujourdhui) >= Number(f.periode)) return false;
+    }
     if (f.versants.length && (o.versant === null || !f.versants.includes(o.versant))) return false;
     if (f.categories.length && (o.categorie === null || !f.categories.includes(o.categorie))) return false;
     if (!contratCorrespond(o, f.contrats)) return false;
@@ -133,6 +138,7 @@ export function filtrer(offres: OffreWeb[], f: Filtres, aujourdhui: string): Off
     if (f.teletravail && !(o.teletravail_possible || (o.teletravail_jours_semaine ?? 0) > 0)) return false;
     if (f.management !== 'tous' && o.management !== (f.management === 'oui')) return false;
     if (f.departements.length && (o.departement === null || !f.departements.includes(o.departement))) return false;
+    if (f.employeur !== null && o.employeur !== f.employeur) return false;
     if (f.trajetMax !== null) {
       const t = trajetDe(o, f.recherche);
       if (!t || t.duree_min > f.trajetMax) return false;
@@ -198,6 +204,7 @@ export function depuisUrl(p: URLSearchParams): Filtres {
     teletravail: p.get('teletravail') === '1',
     management: un(p.get('management'), ['tous', 'oui', 'non'] as const, 'tous'),
     departements: (p.get('departements') ?? '').split(',').filter((d) => /^(\d{2,3}|2[AB])$/.test(d)),
+    employeur: p.get('structure') || null,
     trajetMax: entier(p.get('trajet')),
     tri: un(p.get('tri'), TRIS, 'recentes'),
   };
@@ -218,6 +225,7 @@ export function versUrl(f: Filtres): URLSearchParams {
   if (f.teletravail) p.set('teletravail', '1');
   if (f.management !== d.management) p.set('management', f.management);
   if (f.departements.length) p.set('departements', f.departements.join(','));
+  if (f.employeur) p.set('structure', f.employeur);
   if (f.trajetMax !== null) p.set('trajet', String(f.trajetMax));
   if (f.tri !== d.tri) p.set('tri', f.tri);
   return p;
@@ -237,6 +245,7 @@ export function nombreFiltres(f: Filtres): number {
     f.teletravail,
     f.management !== d.management,
     f.departements.length > 0,
+    f.employeur !== null,
     f.trajetMax !== null,
   ].filter(Boolean).length;
 }

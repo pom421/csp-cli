@@ -17,7 +17,7 @@ const entier = (min: number, max: number) => z.number().int().min(min).max(max);
 export const ResumeSchema = z
   .strictObject({
     resume: texte(1500).describe(
-      'Markdown, 3 à 5 puces commençant par « - » : missions, profil attendu, conditions notables (télétravail, rémunération, management).',
+      'Markdown, puces d’une ligne dans cet ordre : « - **Rôle** : … », « - **Stack** : … », « - **IA** : … » (omise sans IA), « - **Conditions** : … ».',
     ),
     points_attention: z
       .array(texte(200))
