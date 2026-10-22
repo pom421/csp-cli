@@ -30,8 +30,6 @@ export interface Filtres {
   departements: string[];
   /** Minutes ; une offre sans trajet connu est écartée dès que ce filtre est posé. */
   trajetMax: number | null;
-  /** Euros bruts annuels ; une offre sans rémunération connue est écartée dès que ce filtre est posé. */
-  remunerationMin: number | null;
   tri: Tri;
 }
 
@@ -48,7 +46,6 @@ export const FILTRES_PAR_DEFAUT: Filtres = {
   management: 'tous',
   departements: [],
   trajetMax: null,
-  remunerationMin: null,
   tri: 'recentes',
 };
 
@@ -140,10 +137,6 @@ export function filtrer(offres: OffreWeb[], f: Filtres, aujourdhui: string): Off
       const t = trajetDe(o, f.recherche);
       if (!t || t.duree_min > f.trajetMax) return false;
     }
-    if (f.remunerationMin !== null) {
-      const r = remunerationHaute(o);
-      if (r === null || r < f.remunerationMin) return false;
-    }
     if (mots.length) {
       const t = texteDe(o);
       if (!mots.every((m) => t.includes(m))) return false;
@@ -206,7 +199,6 @@ export function depuisUrl(p: URLSearchParams): Filtres {
     management: un(p.get('management'), ['tous', 'oui', 'non'] as const, 'tous'),
     departements: (p.get('departements') ?? '').split(',').filter((d) => /^(\d{2,3}|2[AB])$/.test(d)),
     trajetMax: entier(p.get('trajet')),
-    remunerationMin: entier(p.get('remuneration')),
     tri: un(p.get('tri'), TRIS, 'recentes'),
   };
 }
@@ -227,7 +219,6 @@ export function versUrl(f: Filtres): URLSearchParams {
   if (f.management !== d.management) p.set('management', f.management);
   if (f.departements.length) p.set('departements', f.departements.join(','));
   if (f.trajetMax !== null) p.set('trajet', String(f.trajetMax));
-  if (f.remunerationMin !== null) p.set('remuneration', String(f.remunerationMin));
   if (f.tri !== d.tri) p.set('tri', f.tri);
   return p;
 }
@@ -247,6 +238,5 @@ export function nombreFiltres(f: Filtres): number {
     f.management !== d.management,
     f.departements.length > 0,
     f.trajetMax !== null,
-    f.remunerationMin !== null,
   ].filter(Boolean).length;
 }

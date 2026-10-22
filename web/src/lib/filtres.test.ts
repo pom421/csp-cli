@@ -86,7 +86,7 @@ describe('filtres', () => {
     expect(ids(filtrer(offres, avec({ periode: '7' }), AUJOURDHUI))).toEqual(['a', 'b']);
   });
 
-  it('trajet maximum et rémunération minimale écartent les valeurs inconnues', () => {
+  it('trajet maximum : écarte les trajets inconnus', () => {
     const offres = [
       offre('a', { trajets: { loiret: { duree_min: 40, nb_correspondances: 0 } }, remuneration_max: 45_000 }),
       offre('b', { trajets: { loiret: { duree_min: 90, nb_correspondances: 2 } }, remuneration_min: 30_000 }),
@@ -94,7 +94,6 @@ describe('filtres', () => {
       offre('d'),
     ];
     expect(ids(filtrer(offres, avec({ trajetMax: 60 }), AUJOURDHUI))).toEqual(['a']);
-    expect(ids(filtrer(offres, avec({ remunerationMin: 35_000 }), AUJOURDHUI))).toEqual(['a']);
   });
 
   it('télétravail : case du site ou nombre de jours du résumé ; management oui / non', () => {
@@ -146,7 +145,6 @@ describe('filtres ↔ URL', () => {
       statuts: ['active', 'cloturee'],
       categories: ['A', 'A+'],
       trajetMax: 45,
-      remunerationMin: 40_000,
       teletravail: true,
       departements: ['45', '2A'],
       tri: 'trajet',

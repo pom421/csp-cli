@@ -20,9 +20,8 @@ import {
 import * as format from '@/lib/format';
 import type { RechercheWeb, TempsTravail } from '../../../src/web/contrat.ts';
 
-/** Bornes des curseurs : la valeur extrême veut dire « pas de filtre ». */
+/** Bornes du curseur de trajet : la valeur extrême veut dire « pas de filtre ». */
 const TRAJET = { min: 15, max: 120, pas: 5 };
-const REMUNERATION = { min: 0, max: 80_000, pas: 2_000 };
 const TOUTES = '__toutes__';
 
 function Groupe({ titre, valeur, children }: { titre: string; valeur?: ReactNode; children: ReactNode }) {
@@ -103,27 +102,6 @@ export function PanneauFiltres({ filtres: f, onChange, recherches, departements 
         />
         {f.trajetMax !== null && (
           <p className="text-xs text-muted-foreground">Les offres sans trajet calculé sont masquées.</p>
-        )}
-      </Groupe>
-
-      <Groupe
-        titre="Rémunération"
-        valeur={
-          f.remunerationMin === null
-            ? 'toutes'
-            : `≥ ${format.remuneration({ remuneration_min: f.remunerationMin, remuneration_max: f.remunerationMin })} brut/an`
-        }
-      >
-        <Slider
-          aria-label="Rémunération minimale"
-          min={REMUNERATION.min}
-          max={REMUNERATION.max}
-          step={REMUNERATION.pas}
-          value={[f.remunerationMin ?? REMUNERATION.min]}
-          onValueChange={([v]) => poser({ remunerationMin: v <= REMUNERATION.min ? null : v })}
-        />
-        {f.remunerationMin !== null && (
-          <p className="text-xs text-muted-foreground">Les offres sans rémunération indiquée sont masquées.</p>
         )}
       </Groupe>
 
