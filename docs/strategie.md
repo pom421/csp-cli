@@ -69,14 +69,14 @@ périmètre de l'étape 1, toutes ouvertes en 16 min (~4 s par page, délai de p
 retenues** par les mots-clés (12 %). Une page de liste fait ~190 Ko transférés (4,5 Mo décompressés, presque tout le
 formulaire de filtres) ; une page détail ~215 Ko décompressés (taille transférée non mesurée : volumes ci-dessous maximaux).
 
-|                                                         | Premier import (1 mois)  | Chaque jour            |
-| ------------------------------------------------------- | ------------------------ | ---------------------- |
-| Offres du périmètre (étape 1)                           | ~1 000                   | ~34                    |
-| Pages de liste                                          | ~50 (~10 Mo)             | 1 à 2 (< 0,4 Mo)       |
-| Après filtre de domaine (étape 2) = pages détail        | ~480, ~32 min (≤ 105 Mo) | ~16, ~1 min (≤ 3,5 Mo) |
-| Offres retenues → LLM                                   | ~110                     | ~4                     |
-| Durée LLM (Albert, ~10 s par offre, **non mesuré**)     | ~18 min                  | < 1 min                |
-| Revérification hebdomadaire (1/7 des retenues par jour) | —                        | ~15 pages détail       |
+|                                                                      | Premier import (1 mois)  | Chaque jour            |
+| -------------------------------------------------------------------- | ------------------------ | ---------------------- |
+| Offres du périmètre (étape 1)                                        | ~1 000                   | ~34                    |
+| Pages de liste                                                       | ~50 (~10 Mo)             | 1 à 2 (< 0,4 Mo)       |
+| Après filtre de domaine (étape 2) = pages détail                     | ~480, ~32 min (≤ 105 Mo) | ~16, ~1 min (≤ 3,5 Mo) |
+| Offres retenues → LLM                                                | ~110                     | ~4                     |
+| Durée LLM (Albert `deepseek-v4-flash-0731`, ~50 s par offre, mesuré) | ~1 h 30                  | ~3 à 4 min             |
+| Revérification hebdomadaire (1/7 des retenues par jour)              | —                        | ~15 pages détail       |
 
 Filtre par domaine : dans le test, 114 offres sur 236 étaient dans les 4 domaines (48 %) ; 27 des 28 retenues aussi, la
 28e était du bruit. « référent technique » retiré des mots-clés après le test (3 offres retenues, toutes du bruit).
@@ -98,4 +98,5 @@ par le test, puis par l'activation du filtre de domaine.
 
 1. ~~Test sur les 7 derniers jours, sans filtre de domaine~~ : fait le 21/10/2026 (voir Estimations).
 2. ~~Bilan par mot-clé et hors domaines~~ : fait.
-3. Mesurer la durée réelle d'Albert sur quelques offres ; revoir les estimations ci-dessus et les signaler si elles changent.
+3. ~~Mesurer la durée réelle d'Albert~~ : fait le 22/10/2026, 3 offres en 2 min 33 (~51 s par offre, au lieu des ~10 s
+   supposés). Résumés conformes à la structure Rôle, Stack, IA, Conditions.
