@@ -14,6 +14,7 @@ import type { Lieu } from './geo/lieux.ts';
 import type { FournisseurTrajet } from './geo/trajets.ts';
 import { formaterTrajetsRecherches, trajetsDuJour, type BilanTrajetsRecherche } from './trajets.ts';
 import { dossierPrive, ecrireFichierPrive } from './securite/fichiers.ts';
+import { resteEstime } from './progression.ts';
 import { joursAvant } from './purge.ts';
 import { lireDetail, type Detail } from './scraper/detail.ts';
 import { parcourirRecherche, type Carte, type Periode, type ResultatRecherche } from './scraper/liste.ts';
@@ -321,12 +322,6 @@ async function parcourirToutes(
     resultats.push(await parcourirRecherche(source, r, periodeCollecte(derniere, jour, r), suivi));
   }
   return resultats;
-}
-
-/** « 12 min », « 1 h 05 » : reste estimé d'après la durée moyenne des offres déjà ouvertes. */
-function resteEstime(debut: number, faites: number, total: number): string {
-  const min = Math.round((((Date.now() - debut) / faites) * (total - faites)) / 60_000);
-  return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')}`;
 }
 
 const issueLisible = (i: Issue): string =>

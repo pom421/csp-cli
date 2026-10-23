@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { Depot } from '../db/depot.ts';
 import type { ChampsCode } from '../db/schema.ts';
 import { IndisponibleError, UserError } from '../erreurs.ts';
+import { resteEstime } from '../progression.ts';
 import { CONSIGNE_SYSTEME, messageOffre } from '../resume/consigne.ts';
 import {
   ErreurResume,
@@ -321,12 +322,17 @@ describe('file à résumer', () => {
         return RESUME;
       },
     };
-    const b = await resumerFile(depot, f, { date: '2026-10-20', dossierBrut: brut });
+    const lignes: string[] = [];
+    const b = await resumerFile(depot, f, { date: '2026-10-20', dossierBrut: brut, suivi: (m) => lignes.push(m) });
     expect(b).toMatchObject({
       resumees: ['B-2'],
       echecs: [{ id_offre: 'A-1', raison: 'refus du modèle' }],
       restantes: 1,
     });
+    // Progression : nombre à traiter, puis une ligne par offre (issue, titre, reste estimé sauf pour la dernière).
+    expect(lignes[0]).toBe('2 offre(s) à résumer');
+    expect(lignes[1]).toMatch(/^ {2}1\/2 échec \(refus du modèle\) : .+ — reste ~\d+ min$/);
+    expect(lignes[2]).toMatch(/^ {2}2\/2 résumée : [^—]+$/);
     expect(existsSync(join(brut, 'A-1.txt'))).toBe(true);
     n = 0;
     await resumerFile(depot, f, { date: '2026-10-20', dossierBrut: brut, limite: 0 });
@@ -360,5 +366,13 @@ describe('file à résumer', () => {
     depot.ajouterAResumer('A-1', 'nouvelle', ailleurs, 'd');
     expect(() => enregistrerResume(depot, 'A-1', RESUME, { date: 'd', dossierBrut: brut })).toThrow('hors de');
     expect(existsSync(ailleurs)).toBe(true);
+  });
+});
+
+describe('progression', () => {
+  it('reste estimé d’après la durée moyenne des étapes déjà faites', () => {
+    // 2 étapes en 2 min : 1 min chacune, 8 restantes.
+    expect(resteEstime(0, 2, 10, 120_000)).toBe('8 min');
+    expect(resteEstime(0, 1, 100, 60_000)).toBe('1 h 39');
   });
 });

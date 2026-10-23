@@ -149,7 +149,9 @@ const COMMANDES: Record<string, Commande> = {
       const { resumerFile } = await import('./resume/resumer.ts');
       const fournisseur = fournisseurDepuisEnv();
       const date = await aujourdhui();
-      const bilan = await avecDepot((d) => resumerFile(d, fournisseur, { date, limite }));
+      // Sur la sortie d'erreur, sauf avec --json (sortie lisible par un programme).
+      const suivi = v.json ? undefined : (m: string) => console.error(m);
+      const bilan = await avecDepot((d) => resumerFile(d, fournisseur, { date, limite, suivi }));
       afficher(v, bilan, () =>
         [
           `Fournisseur : ${bilan.fournisseur}`,
