@@ -47,16 +47,41 @@ describe('schéma du résumé', () => {
     expect(validerResume(RESUME)).toEqual({ ok: true, resume: RESUME });
   });
 
+  it('ramène dans les bornes les champs annexes trop longs au lieu de refuser le résumé', () => {
+    const long = 'Maîtrise des outils de déploiement continu et de supervision des plateformes de production cloud';
+    const r = validerResume({
+      ...RESUME,
+      competences: [long, ...Array.from({ length: 14 }, (_, i) => `C${i}`)],
+      points_attention: Array.from({ length: 8 }, (_, i) => `P${i}`),
+      niveau_diplome: 'Bac+5 (master ou diplôme d’ingénieur) en informatique, ou expérience équivalente',
+      date_prise_poste: 'dès que possible',
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.resume.competences).toHaveLength(12);
+    expect(r.resume.competences[0]).toHaveLength(80);
+    expect(r.resume.competences[0].endsWith('…')).toBe(true);
+    expect(r.resume.points_attention).toHaveLength(6);
+    expect(r.resume.niveau_diplome).toHaveLength(60);
+    expect(r.resume.date_prise_poste).toBeNull();
+    expect(validerResume({ ...RESUME, date_prise_poste: '16/11/2026' })).toMatchObject({
+      ok: true,
+      resume: { date_prise_poste: '2026-11-16' },
+    });
+  });
+
+  it('une coordonnée reste bloquante, même dans une compétence coupée', () => {
+    expect(validerResume({ ...RESUME, competences: ['Écrire à prenom.nom@ac-nice.fr'] })).toMatchObject({ ok: false });
+  });
+
   it.each([
     [{ resume: 'Écrire à prenom.nom@ac-nice.fr' }, 'resume : contient une coordonnée'],
     [{ points_attention: ['Appeler le 06 12 34 56 78'] }, 'points_attention.0 : contient une coordonnée'],
     [{ remuneration_min: 50_000, remuneration_max: 40_000 }, 'remuneration_min : remuneration_min supérieur'],
     [{ teletravail_jours_semaine: 7 }, 'teletravail_jours_semaine'],
     [{ teletravail_jours_semaine: 1.3 }, 'teletravail_jours_semaine'],
-    [{ date_prise_poste: '16/11/2026' }, 'date_prise_poste'],
     [{ type_contrat: 'cdi' }, 'type_contrat'],
     [{ champ_en_plus: 1 }, '(racine)'],
-    [{ competences: Array(13).fill('x') }, 'competences'],
   ])('refuse %j', (modif, motif) => {
     const v = validerResume({ ...RESUME, ...modif });
     expect(v.ok).toBe(false);

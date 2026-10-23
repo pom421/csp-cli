@@ -90,9 +90,40 @@ function simplifier(noeud: unknown): unknown {
 /** Schéma JSON du résumé pour la sortie structurée des fournisseurs : tous les champs obligatoires, aucun en plus. */
 export const SCHEMA_JSON = simplifier(z.toJSONSchema(ResumeSchema, { target: 'draft-7' })) as Record<string, unknown>;
 
+/** Coupe un texte trop long à `max` caractères, points de suspension compris. */
+const couper = (t: string, max: number) => (t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t);
+
+/**
+ * Les modèles ne respectent pas toujours les bornes des champs annexes (elles ne leur sont pas envoyées, voir plus
+ * haut) : plutôt que de refuser tout le résumé, on les ramène dans les bornes. Compétences : les 12 premières, coupées à
+ * 80 caractères ; points d'attention : les 6 premiers, coupés à 200 ; diplôme coupé à 60 ; date de prise de poste
+ * JJ/MM/AAAA convertie, tout autre texte : null. Le reste (résumé, coordonnées, types) reste bloquant.
+ */
+export function normaliserResume(brut: unknown): unknown {
+  if (brut === null || typeof brut !== 'object' || Array.isArray(brut)) return brut;
+  const r: Record<string, unknown> = { ...brut };
+  const liste = (cle: string, nombre: number, longueur: number) => {
+    const v = r[cle];
+    if (!Array.isArray(v)) return;
+    r[cle] = v
+      .map((e) => (typeof e === 'string' ? couper(e.trim(), longueur) : e))
+      .filter((e) => e !== '')
+      .slice(0, nombre);
+  };
+  liste('competences', 12, 80);
+  liste('points_attention', 6, 200);
+  if (typeof r.niveau_diplome === 'string') r.niveau_diplome = couper(r.niveau_diplome.trim(), 60);
+  if (typeof r.date_prise_poste === 'string' && !DATE_ISO.test(r.date_prise_poste)) {
+    // « 16/11/2026 » → « 2026-11-16 » ; tout autre texte (« dès que possible ») → null.
+    const fr = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(r.date_prise_poste.trim());
+    r.date_prise_poste = fr ? `${fr[3]}-${fr[2]}-${fr[1]}` : null;
+  }
+  return r;
+}
+
 /** Valide un résumé ; renvoie la liste lisible des erreurs (pour la relance du modèle ou le message utilisateur). */
 export function validerResume(brut: unknown): { ok: true; resume: Resume } | { ok: false; erreurs: string[] } {
-  const r = ResumeSchema.safeParse(brut);
+  const r = ResumeSchema.safeParse(normaliserResume(brut));
   if (r.success) return { ok: true, resume: r.data };
   return { ok: false, erreurs: r.error.issues.map((i) => `${i.path.join('.') || '(racine)'} : ${i.message}`) };
 }
