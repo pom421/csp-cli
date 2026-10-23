@@ -57,7 +57,12 @@ const COMMANDES: Record<string, Commande> = {
     options: { 'dry-run': { type: 'boolean' }, recherche: { type: 'string' }, ...JSON_OPTION },
     async executer(v) {
       const { collecte, formaterBilan } = await import('./collecte.ts');
-      const bilan = await collecte({ dryRun: Boolean(v['dry-run']), recherche: v.recherche as string | undefined });
+      const bilan = await collecte({
+        dryRun: Boolean(v['dry-run']),
+        recherche: v.recherche as string | undefined,
+        // Sur la sortie d'erreur, sauf avec --json (sortie lisible par un programme).
+        suivi: v.json ? undefined : (m) => console.error(m),
+      });
       afficher(v, bilan, () => formaterBilan(bilan));
       return 0;
     },

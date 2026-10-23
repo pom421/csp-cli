@@ -93,6 +93,8 @@ export interface OptionsCollecte {
   dossierDiagnostics?: string;
   geocodage?: SourceGeocodage;
   fournisseurTrajet?: FournisseurTrajet;
+  /** Progression (une ligne par page lue ou par offre ouverte) ; la CLI l'écrit sur la sortie d'erreur. */
+  suivi?: (message: string) => void;
 }
 
 /** Date du jour à Paris (AAAA-MM-JJ), quel que soit le fuseau de la machine. */
@@ -236,12 +238,12 @@ async function executer(
   if (options.dryRun) {
     const apercu = { ecriture: null, geo: null, trajets: null };
     if (!existsSync(base)) {
-      const resultats = await parcourirToutes(source, recherches, null, jour);
+      const resultats = await parcourirToutes(source, recherches, null, jour, options.suivi);
       return { ...comparer(resultats, new Map(), options.recherche), ...apercu };
     }
     const depot = new Depot(base, { lectureSeule: true });
     try {
-      const resultats = await parcourirToutes(source, recherches, derniereCollecte(depot), jour);
+      const resultats = await parcourirToutes(source, recherches, derniereCollecte(depot), jour, options.suivi);
       verifierResultats(resultats, depot.activesParRecherche());
       return { ...comparer(resultats, statutsEnBase(depot), options.recherche), ...apercu };
     } finally {
@@ -253,7 +255,7 @@ async function executer(
   const derniere = derniereCollecte(depot);
   const execution = depot.commencerExecution(maintenant().toISOString());
   try {
-    const resultats = await parcourirToutes(source, recherches, derniere, jour);
+    const resultats = await parcourirToutes(source, recherches, derniere, jour, options.suivi);
     verifierResultats(resultats, depot.activesParRecherche());
     const bilan = comparer(resultats, statutsEnBase(depot), options.recherche);
     const geocodeur = new Geocodeur(depot, options.geocodage ?? sourceIgn, jour);
@@ -262,12 +264,14 @@ async function executer(
       dossierBrut: options.dossierBrut ?? chemins().brut,
       geocodeur,
       recherches: new Map(recherches.map((r) => [r.nom, r])),
+      suivi: options.suivi,
     });
     const geo: BilanGeo = {
       appels: geocodeur.appels,
       non_localisees,
       panne: geocodeur.panne,
     };
+    options.suivi?.('Trajets…');
     const trajets = await trajetsDuJour(depot, recherches, {
       jour,
       geocodage: geocodeur.source,
@@ -310,11 +314,29 @@ async function parcourirToutes(
   recherches: Recherche[],
   derniere: string | null,
   jour: string,
+  suivi?: (message: string) => void,
 ): Promise<ResultatRecherche[]> {
   const resultats: ResultatRecherche[] = [];
-  for (const r of recherches) resultats.push(await parcourirRecherche(source, r, periodeCollecte(derniere, jour, r)));
+  for (const r of recherches) {
+    resultats.push(await parcourirRecherche(source, r, periodeCollecte(derniere, jour, r), suivi));
+  }
   return resultats;
 }
+
+/** « 12 min », « 1 h 05 » : reste estimé d'après la durée moyenne des offres déjà ouvertes. */
+function resteEstime(debut: number, faites: number, total: number): string {
+  const min = Math.round((((Date.now() - debut) / faites) * (total - faites)) / 60_000);
+  return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')}`;
+}
+
+const issueLisible = (i: Issue): string =>
+  i.type === 'retiree'
+    ? 'page retirée'
+    : i.type === 'ecartee'
+      ? i.motif === 'experience'
+        ? 'écartée (expérience)'
+        : 'écartée (aucun mot-clé)'
+      : `retenue${i.mots.length ? ` (${i.mots.join(', ')})` : ''}${i.type === 'inchangee' ? ', inchangée' : ''}`;
 
 type Partition = Pick<BilanCollecte, 'nouvelles' | 'connues' | 'reapparues'>;
 
@@ -455,6 +477,7 @@ interface ContexteEcriture {
   geocodeur: Geocodeur;
   /** Recherches par nom (filtres [Détail]). */
   recherches: ReadonlyMap<string, Recherche>;
+  suivi?: (message: string) => void;
 }
 
 /**
@@ -524,9 +547,17 @@ async function ecrire(
   const ctx: ContexteEcriture = { ...contexte, enLigne: new Set(bilan.cartes.map((c) => c.id_offre)) };
   const dejaEcartees = depot.ecartees(bilan.cartes.map((c) => c.id_offre));
   const issues: Issue[] = [];
+  const aOuvrir = bilan.cartes.filter((c) => !dejaEcartees.has(c.id_offre));
+  ctx.suivi?.(
+    `${aOuvrir.length} offre(s) à ouvrir${dejaEcartees.size ? `, ${dejaEcartees.size} déjà écartée(s)` : ''}`,
+  );
+  const debut = Date.now();
   // Séquentiel : le délai de politesse entre deux pages du site est imposé par http.ts.
-  for (const carte of bilan.cartes) {
-    if (!dejaEcartees.has(carte.id_offre)) issues.push(await traiterOffre(depot, source, carte, ctx));
+  for (const [n, carte] of aOuvrir.entries()) {
+    const issue = await traiterOffre(depot, source, carte, ctx);
+    issues.push(issue);
+    const reste = n + 1 < aOuvrir.length ? ` — reste ~${resteEstime(debut, n + 1, aOuvrir.length)}` : '';
+    ctx.suivi?.(`  ${n + 1}/${aOuvrir.length} ${issueLisible(issue)} : ${carte.titre}${reste}`);
   }
   const absents = issues.filter((i) => i.type === 'retiree').length;
   // Avant de compter les absences : une casse ne doit faire expirer aucune offre.
@@ -579,10 +610,14 @@ async function reverifier(depot: Depot, source: SourcePages, ctx: ContexteEcritu
   const actives = depot.listerOffres('active').length;
   const lot = candidates.slice(0, Math.max(1, Math.ceil(actives / REVERIFICATION_JOURS)));
   const issues: Issue[] = [];
-  for (const o of lot) {
+  if (lot.length) ctx.suivi?.(`Revérification de ${lot.length} offre(s) déjà retenue(s)`);
+  for (const [n, o] of lot.entries()) {
     const issue = await traiterOffre(depot, source, carteDe(o, depot.recherchesDe(o.id_offre)), ctx, true);
     if (issue.type === 'retiree') depot.marquerRetiree(o.id_offre);
     issues.push(issue);
+    ctx.suivi?.(
+      `  ${n + 1}/${lot.length} ${issue.type === 'retiree' ? 'retirée du site' : 'toujours en ligne'} : ${o.titre}`,
+    );
   }
   return issues;
 }
