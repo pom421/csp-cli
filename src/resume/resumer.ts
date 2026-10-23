@@ -6,6 +6,7 @@ import type { Depot } from '../db/depot.ts';
 import { UserError } from '../erreurs.ts';
 import { ErreurResume, ReponseNonJson, type FournisseurResume } from './fournisseurs.ts';
 import { validerResume, type Resume } from './schema.ts';
+import { resteEstime } from '../progression.ts';
 
 export interface EnAttente {
   id_offre: string;
@@ -122,12 +123,32 @@ const cumuler = (bilan: BilanResumes, r: Resultat): BilanResumes =>
 export async function resumerFile(
   depot: Depot,
   fournisseur: FournisseurResume,
-  { date, limite = Infinity, dossierBrut = chemins().brut }: { date: string; limite?: number; dossierBrut?: string },
+  {
+    date,
+    limite = Infinity,
+    dossierBrut = chemins().brut,
+    suivi,
+  }: {
+    date: string;
+    limite?: number;
+    dossierBrut?: string;
+    /** Progression : une ligne par offre traitée (la CLI l'écrit sur la sortie d'erreur). */
+    suivi?: (message: string) => void;
+  },
 ): Promise<BilanResumes> {
   const resultats: Resultat[] = [];
+  const file = depot.aResumer();
+  const lot = file.slice(0, limite);
+  suivi?.(`${lot.length} offre(s) à résumer${lot.length < file.length ? ` sur ${file.length} en file` : ''}`);
+  const debut = Date.now();
   // Séquentiel volontairement : débit maîtrisé côté fournisseur, et un arrêt laisse les offres déjà traitées en base.
-  for (const attente of depot.aResumer().slice(0, limite)) {
-    resultats.push(await resumerUne(depot, fournisseur, attente, { date, dossierBrut }));
+  for (const [n, attente] of lot.entries()) {
+    const resultat = await resumerUne(depot, fournisseur, attente, { date, dossierBrut });
+    resultats.push(resultat);
+    const titre = depot.obtenirOffre(attente.id_offre)?.titre ?? attente.id_offre;
+    const issue = resultat.ok ? 'résumée' : `échec (${resultat.raison})`;
+    const reste = n + 1 < lot.length ? ` — reste ~${resteEstime(debut, n + 1, lot.length)}` : '';
+    suivi?.(`  ${n + 1}/${lot.length} ${issue} : ${titre}${reste}`);
   }
   const vide: BilanResumes = {
     fournisseur: `${fournisseur.nom} (${fournisseur.modele})`,
