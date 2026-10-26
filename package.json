@@ -20,7 +20,7 @@
     "web:dev": "vp dev web"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "4.0.79",
+    "@ai-sdk/anthropic": "4.0.82",
     "@ai-sdk/openai-compatible": "3.0.68",
     "ai": "7.0.138",
     "css-select": "7.0.0",
