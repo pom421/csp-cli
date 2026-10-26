@@ -22,7 +22,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.79",
     "@ai-sdk/openai-compatible": "3.0.68",
-    "ai": "7.0.138",
+    "ai": "7.0.143",
     "css-select": "7.0.0",
     "domhandler": "6.0.1",
     "domutils": "4.0.2",
